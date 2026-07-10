@@ -113,22 +113,29 @@ def matches_wake(text: str, wake_word: str) -> bool:
     )
 
 
-def record_command(max_seconds: float = 15.0, silence_after: float = 1.2):
-    """After the wake word: record until the speaker goes quiet."""
+def _mic_threshold() -> float:
+    """RMS below this = silence. Mics vary wildly — tune with
+    JARVIS_MIC_THRESHOLD (lower if it never hears you, higher if it
+    wakes on room noise)."""
+    return float(os.getenv("JARVIS_MIC_THRESHOLD", "0.005"))
+
+
+def record_command(stream, max_seconds: float = 15.0, silence_after: float = 1.2):
+    """After the wake word: keep reading the SAME stream until the speaker
+    goes quiet. Reusing the stream matters — opening a fresh macOS audio
+    stream per phase is how the first version froze."""
     import numpy as np
-    import sounddevice as sd
 
     block = SAMPLE_RATE // 10  # 100ms blocks
     frames, quiet, spoke = [], 0, False
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=block) as stream:
-        for _ in range(int(max_seconds * 10)):
-            data, _ = stream.read(block)
-            frames.append(data.copy())
-            loud = float(np.sqrt((data**2).mean())) > 0.01
-            spoke = spoke or loud
-            quiet = 0 if loud else quiet + 1
-            if spoke and quiet >= int(silence_after * 10):
-                break
+    for _ in range(int(max_seconds * 10)):
+        data, _ = stream.read(block)
+        frames.append(data.copy())
+        loud = float(np.sqrt((data**2).mean())) > _mic_threshold() * 2
+        spoke = spoke or loud
+        quiet = 0 if loud else quiet + 1
+        if spoke and quiet >= int(silence_after * 10):
+            break
     return np.concatenate(frames)[:, 0]
 
 
@@ -139,6 +146,14 @@ def wake_loop(jarvis: Jarvis, mouth: "Mouth", wake_word: str) -> None:
     This is the transparent, zero-training way to make ANY phrase a wake word.
     Trade-off vs a real wake-word engine (openWakeWord): a bit more CPU and a
     chunk boundary can occasionally split the phrase — say it with intent.
+
+    Engineering notes from the first live freeze:
+    - ONE persistent InputStream for everything. sd.rec()+sd.wait() per chunk
+      re-opens the device every 2.5s and can block forever when macOS audio
+      routing changes (say/AirPods/etc).
+    - The scanner always shows a heartbeat, so "listening" never looks "dead".
+    - The mic buffer is drained after Jarvis speaks, so it doesn't wake on
+      the tail of its own voice (the "mm-hmm" self-trigger in the trace).
     """
     import numpy as np
     import sounddevice as sd
@@ -146,27 +161,49 @@ def wake_loop(jarvis: Jarvis, mouth: "Mouth", wake_word: str) -> None:
     scout = Ears(model_size="tiny")  # cheap, always on
     ears = Ears()                    # accurate, only after wake
     ack = os.getenv("JARVIS_WAKE_ACK", "Yes?")
+    block = SAMPLE_RATE // 10
     print(f'Listening for "{wake_word}" — Ctrl-C to quit.')
 
-    while True:
-        chunk = sd.rec(int(2.5 * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="float32")
-        sd.wait()
-        chunk = chunk[:, 0]
-        if float(np.sqrt((chunk**2).mean())) < 0.005:  # silence — don't feed whisper hallucinations
-            continue
-        if not matches_wake(scout.transcribe(chunk), wake_word):
-            continue
+    def status(msg: str) -> None:
+        sys.stdout.write(f"\r\x1b[2m👂 {msg[:70]:<70}\x1b[0m")
+        sys.stdout.flush()
 
-        print("🔔 wake word!")
-        mouth.speak(ack)
-        heard = ears.transcribe(record_command())
-        if not heard:
-            print("(didn't catch that)")
-            continue
-        print(f"you › {heard}")
-        result = jarvis.respond(heard, observer=_observer)
-        print(f"jarvis › {result.reply}")
-        mouth.speak(result.reply)
+    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=block) as stream:
+
+        def drain() -> None:
+            while stream.read_available >= block:
+                stream.read(block)
+
+        window: list = []
+        while True:
+            data, _ = stream.read(block)
+            window.append(data.copy())
+            if len(window) < 25:  # gather 2.5s
+                continue
+            chunk = np.concatenate(window)[:, 0]
+            window = window[-5:]  # keep a 0.5s tail so the phrase can straddle chunks
+
+            if float(np.sqrt((chunk**2).mean())) < _mic_threshold():
+                status("listening…")
+                continue
+            heard_scan = scout.transcribe(chunk)
+            if not matches_wake(heard_scan, wake_word):
+                status(f'heard: "{heard_scan}"' if heard_scan else "listening…")
+                continue
+
+            print("\n🔔 wake word!")
+            mouth.speak(ack)
+            drain()  # don't transcribe the ack playing over the mic
+            heard = ears.transcribe(record_command(stream))
+            if not heard:
+                print("(didn't catch that)")
+                continue
+            print(f"you › {heard}")
+            result = jarvis.respond(heard, observer=_observer)
+            print(f"jarvis › {result.reply}")
+            mouth.speak(result.reply)
+            drain()  # ...and don't wake on the tail of the reply
+            window = []
 
 
 def main() -> None:

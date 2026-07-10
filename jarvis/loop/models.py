@@ -64,14 +64,17 @@ def get_client(settings: Settings):
     settings.small_model = settings.small_model or provider.small_model
     base_url = settings.base_url or provider.base_url
 
+    # a hung network call must never freeze a turn silently
+    timeout = float(os.getenv("JARVIS_LLM_TIMEOUT", "120"))
+
     if provider.kind == "anthropic":
         import anthropic
 
-        kwargs: dict = {"api_key": api_key}
+        kwargs: dict = {"api_key": api_key, "timeout": timeout}
         if base_url:
             kwargs["base_url"] = base_url
         return anthropic.Anthropic(**kwargs)
-    return OpenAICompatClient(api_key=api_key, base_url=base_url)
+    return OpenAICompatClient(api_key=api_key, base_url=base_url, timeout=timeout)
 
 
 class OpenAICompatClient:
@@ -80,10 +83,10 @@ class OpenAICompatClient:
     between the two wire formats — worth reading once.
     """
 
-    def __init__(self, api_key: str, base_url: str | None = None):
+    def __init__(self, api_key: str, base_url: str | None = None, timeout: float = 120.0):
         import openai
 
-        self._client = openai.OpenAI(api_key=api_key, base_url=base_url)
+        self._client = openai.OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
         self.messages = SimpleNamespace(create=self._create)
 
     def _create(self, *, model, messages, max_tokens, system=None, tools=None):
