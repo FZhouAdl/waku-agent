@@ -16,12 +16,12 @@ from jarvis.tools import build_registry
 
 
 class Jarvis:
-    def __init__(self, settings: Settings | None = None, client=None):
-        # `client` is injectable so evals can swap in a scripted fake model —
-        # the same seam a production system uses for staging vs prod models.
+    def __init__(self, settings: Settings | None = None, client=None, conn=None):
+        # `client` and `conn` are injectable: evals swap in a scripted model,
+        # the dashboard injects a cross-thread connection. Same seam either way.
         self.settings = settings or load_settings()
         self.settings.ensure_home()
-        self.conn = connect(self.settings.home)
+        self.conn = conn or connect(self.settings.home)
         self.client = client or get_client(self.settings)
         self.tools = build_registry(self.conn, self.settings)
 

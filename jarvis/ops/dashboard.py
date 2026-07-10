@@ -9,13 +9,16 @@ One stdlib HTTP server reading the files Jarvis already writes:
   eval             eval_report.json (written by `make gate`)
 
 The overview mirrors the architecture diagram — every box is clickable and
-opens that section's live data. It reads and displays; it never mutates.
-For deep trace waterfalls use Phoenix (`make trace`).
+opens that section's live data. The Chat tab is a real gateway: type a message
+and watch the same harness (gate, loop, tools, memory) that the CLI/voice/
+telegram gateways drive — the pipeline lights up in the browser as it runs.
+Bound to 127.0.0.1 only. For deep trace waterfalls use Phoenix (`make trace`).
 """
 
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -23,6 +26,51 @@ from jarvis.config import load_settings
 from jarvis.db import connect
 
 PORT = 7777
+
+# One shared agent for the browser gateway. Built lazily (first chat), reused
+# across the threaded server's workers via a cross-thread connection + a lock
+# so chats run one at a time — correct for a single-user local tool.
+_agent = None
+_agent_lock = threading.Lock()
+
+
+def _get_agent():
+    global _agent
+    if _agent is None:
+        from jarvis.app import Jarvis
+
+        settings = load_settings()
+        settings.ensure_home()
+        conn = connect(settings.home, check_same_thread=False)
+        _agent = Jarvis(settings=settings, conn=conn)
+    return _agent
+
+
+def chat(message: str) -> dict:
+    """Run one real turn through the harness and return the structured result —
+    gate decision, tool calls, reply, latency — so the browser can render the
+    pipeline as it happened. Writes traces + memory like any other gateway."""
+    events: list[dict] = []
+    with _agent_lock:
+        agent = _get_agent()
+        start = datetime.now(timezone.utc)
+        result = agent.respond(message, observer=lambda kind, ev: events.append({"kind": kind, **ev}))
+        latency_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
+
+    gate = next((e for e in events if e["kind"] == "gate"), None)
+    cons = next((e for e in events if e["kind"] == "consolidation"), None)
+    return {
+        "reply": result.reply,
+        "gate": {"decision": gate["decision"], "reason": gate.get("reason")} if gate else None,
+        "tools": [
+            {"tool": c["tool"], "args": c["args"], "output": c["output"],
+             "status": _tool_status(c["output"]), "summary": (c["output"] or "").split(". ")[0][:120]}
+            for c in result.tool_calls
+        ],
+        "consolidation": {"new_facts": cons["new_facts"]} if cons else None,
+        "iterations": result.iterations,
+        "latency_ms": latency_ms,
+    }
 
 # Rough $/million tokens (in, out) for a dollar ESTIMATE — the number humans
 # actually feel. Keyed by provider; deliberately approximate and labelled "est".
@@ -242,6 +290,21 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   .splitbar div{display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#fff;min-width:2px}
   .seg-skip{background:var(--accent)} .seg-ret{background:#c8951f}
   .tile b.money{color:var(--good)}
+  .chatlog{display:flex;flex-direction:column;gap:10px;margin-bottom:96px}
+  .bubble{align-self:flex-end;background:var(--accent);color:#fff;padding:8px 13px;
+          border-radius:14px 14px 3px 14px;max-width:75%;font-size:13.5px}
+  .chatbar{position:fixed;bottom:0;left:208px;right:0;background:var(--bg);
+           border-top:1px solid var(--line);padding:14px 40px;display:flex;gap:10px;max-width:1000px}
+  .chatbar input{flex:1;background:var(--panel);border:1px solid var(--line2);border-radius:8px;
+                 padding:10px 14px;color:var(--ink);font-size:14px;outline:none}
+  .chatbar input:focus{border-color:var(--accent)}
+  .chatbar button{background:var(--accent);color:#fff;border:none;border-radius:8px;
+                  padding:0 18px;font-weight:600;font-size:13.5px;cursor:pointer}
+  .chatbar button:disabled{opacity:.5;cursor:default}
+  .stages{display:flex;gap:6px;margin:2px 0 4px}
+  .stage{font-size:11px;padding:2px 9px;border-radius:99px;border:1px solid var(--line2);color:var(--ink3)}
+  .stage.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+  .stage.done{border-color:var(--good);color:var(--good)}
   table{width:100%;border-collapse:collapse;font-size:13px}
   td,th{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
   tr:last-child td{border-bottom:none}
@@ -252,6 +315,8 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
 </style></head><body>
 <nav>
   <div class="brand">Jarvis<small id="model"></small></div>
+  <div class="grp">Test</div>
+  <a href="#chat" data-v="chat">Chat &amp; watch</a>
   <div class="grp">System</div>
   <a href="#overview" data-v="overview">Overview</a>
   <a href="#loop" data-v="loop">Loop <span class="n" id="n-loop"></span></a>
@@ -305,7 +370,57 @@ const gateSplit = s => {
   </div><div class="meta" style="margin-top:6px">the retrieval gate skipped memory on ${skipPct}% of turns — that's latency and bias saved</div>`;
 };
 
+// --- Chat gateway: type here, watch the harness run (turns kept in memory)
+const CHAT = [];
+const chatTurnCard = t => `<div class="card">
+  ${t.gate?`<div class="stages"><span class="stage done">gate · ${esc(t.gate.decision)}</span>${(t.tools||[]).map(x=>`<span class="stage done">tool · ${esc(x.tool)}</span>`).join("")}<span class="stage done">reply</span></div>
+    <div class="meta" style="margin:0 0 6px">${esc(t.gate.reason||"")}</div>`:""}
+  ${(t.tools||[]).map(toolRow).join("")}
+  <div class="r" style="margin-top:8px">${esc(t.reply)}</div>
+  <div class="meta">${secs(t.latency_ms)} · ${t.iterations??"?"} iter${t.consolidation?` · consolidated ${t.consolidation.new_facts} fact(s)`:""}</div>
+</div>`;
+
+function chatView(){
+  return `<div class="chatlog" id="chatlog">${
+    CHAT.length ? CHAT.map(m => m.role==="user"
+        ? `<div class="bubble">${esc(m.text)}</div>`
+        : m.pending ? `<div class="card"><div class="stages"><span class="stage on">gate</span><span class="stage">loop</span><span class="stage">tools</span><span class="stage">reply</span></div><div class="meta" style="margin:0">running the harness…</div></div>`
+        : chatTurnCard(m)).join("")
+      : `<div class="empty">Type a message and watch the gate, loop, tools, and memory react — the same harness the CLI, voice, and Telegram gateways drive.</div>`
+  }</div>
+  <div class="chatbar">
+    <input id="msg" placeholder="Message Jarvis — e.g. schedule a swim with Sergey Saturday 5pm" autocomplete="off">
+    <button id="send">Send</button>
+  </div>`;
+}
+
+async function sendChat(){
+  const input = document.getElementById("msg");
+  const text = (input.value||"").trim();
+  if (!text) return;
+  input.value = "";
+  CHAT.push({role:"user", text});
+  const pending = {role:"jarvis", pending:true};
+  CHAT.push(pending);
+  document.getElementById("view").innerHTML = chatView();
+  wireChat(); scrollChat();
+  try {
+    const res = await (await fetch("/api/chat", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({message:text})})).json();
+    Object.assign(pending, {pending:false}, res.error ? {reply:"Error: "+res.error} : res);
+  } catch(e){ Object.assign(pending, {pending:false, reply:"Error: "+e}); }
+  document.getElementById("view").innerHTML = chatView();
+  wireChat(); scrollChat();
+  refresh();  // update the other tabs' data (Loop, Memory, Ops) live
+}
+function wireChat(){
+  const b = document.getElementById("send"), i = document.getElementById("msg");
+  if (b) b.onclick = sendChat;
+  if (i){ i.focus(); i.onkeydown = e => { if (e.key==="Enter") sendChat(); }; }
+}
+function scrollChat(){ const l=document.getElementById("chatlog"); if(l) window.scrollTo(0, document.body.scrollHeight); }
+
 const VIEWS = {
+  chat(){ return chatView(); },
   overview(d){
     const s = d.stats;
     const tiles = [
@@ -402,13 +517,22 @@ const VIEWS = {
   },
 };
 
+let activeView = null;
+const TITLES = {chat:"Chat & watch", ops:"LLM Ops"};
 function render(){
   if (!D) return;
-  const v = (location.hash||"#overview").slice(1);
+  const v = (location.hash||"#chat").slice(1);
   const view = VIEWS[v] ? v : "overview";
   document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("on", a.dataset.v===view));
-  document.getElementById("title").textContent = view==="ops" ? "LLM Ops" : view[0].toUpperCase()+view.slice(1);
-  document.getElementById("view").innerHTML = VIEWS[view](D);
+  document.getElementById("title").textContent = TITLES[view] || view[0].toUpperCase()+view.slice(1);
+  // Chat owns its DOM (don't wipe the input mid-type on the 5s refresh);
+  // (re)build it only when first entering the tab.
+  if (view === "chat"){
+    if (activeView !== "chat"){ document.getElementById("view").innerHTML = chatView(); wireChat(); }
+  } else {
+    document.getElementById("view").innerHTML = VIEWS[view](D);
+  }
+  activeView = view;
   document.getElementById("model").textContent = `${D.provider} · ${D.model}`;
   document.getElementById("n-loop").textContent = D.stats.turns;
   document.getElementById("n-mem").textContent = D.facts.length + D.episodes.length;
@@ -432,18 +556,32 @@ refresh(); setInterval(refresh, 5000); setInterval(tickLive, 1000);
 
 
 class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):  # noqa: N802 — http.server API
-        if self.path == "/api/data":
-            body = json.dumps(collect(), default=str).encode()
-            ctype = "application/json"
-        else:
-            body = PAGE.encode()
-            ctype = "text/html; charset=utf-8"
+    def _send(self, body: bytes, ctype: str) -> None:
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def do_GET(self):  # noqa: N802 — http.server API
+        if self.path == "/api/data":
+            self._send(json.dumps(collect(), default=str).encode(), "application/json")
+        else:
+            self._send(PAGE.encode(), "text/html; charset=utf-8")
+
+    def do_POST(self):  # noqa: N802 — browser gateway: run a real turn
+        if self.path != "/api/chat":
+            self.send_response(404)
+            self.end_headers()
+            return
+        length = int(self.headers.get("Content-Length", 0))
+        payload = json.loads(self.rfile.read(length) or "{}")
+        message = (payload.get("message") or "").strip()
+        try:
+            out = chat(message) if message else {"error": "empty message"}
+        except Exception as exc:  # surface, don't 500 — the browser shows it
+            out = {"error": f"{type(exc).__name__}: {exc}"}
+        self._send(json.dumps(out, default=str).encode(), "application/json")
 
     def log_message(self, *args):  # keep the terminal quiet
         pass

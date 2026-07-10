@@ -65,8 +65,12 @@ CREATE TABLE IF NOT EXISTS chat_log (
 """
 
 
-def connect(home: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(home / "state.db")
+def connect(home: Path, check_same_thread: bool = True) -> sqlite3.Connection:
+    # check_same_thread=False lets the dashboard's threaded HTTP server reuse
+    # one agent connection across worker threads (guarded by a lock). busy_timeout
+    # avoids "database is locked" when the dashboard reads while a chat writes.
+    conn = sqlite3.connect(home / "state.db", check_same_thread=check_same_thread)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=3000")
     conn.executescript(SCHEMA)
     return conn
