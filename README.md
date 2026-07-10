@@ -89,6 +89,18 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 make run
 Every run always writes a plain-text trace to `.jarvis/traces/*.jsonl` too — a trace
 is just "what happened, in order." Langfuse cloud works with the same env toggle.
 
+## Talk to it 🎙
+
+```bash
+pip install -e '.[voice]'
+make voice        # push-to-talk: Enter, speak, Enter
+```
+
+Same loop, same memory, same evals — speech is just another gateway. TTS uses
+the macOS `say` British voice by default (zero setup); for the neural butler
+voice: `pip install kokoro soundfile`, then `JARVIS_TTS=kokoro make voice`.
+Wake-word mode is v2 (we'll train a custom one with openWakeWord).
+
 ## Phone → laptop
 
 ```bash

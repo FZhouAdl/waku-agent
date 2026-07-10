@@ -1,6 +1,7 @@
 """Entrypoints:
 
   python -m jarvis                       chat in the terminal (default)
+  python -m jarvis voice                 talk to it (needs the [voice] extra)
   python -m jarvis telegram              phone → laptop (needs TELEGRAM_BOT_TOKEN)
   python -m jarvis skill install <url>   install a community skill
 """
@@ -16,6 +17,10 @@ def main() -> None:
         from jarvis.gateway.cli import main as cli_main
 
         cli_main()
+    elif args[0] == "voice":
+        from jarvis.gateway.voice import main as voice_main
+
+        voice_main()
     elif args[0] == "telegram":
         from jarvis.gateway.telegram import main as tg_main
 

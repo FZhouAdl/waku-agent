@@ -1,9 +1,12 @@
 # launch-jarvis — one command per pillar.
 
-.PHONY: run telegram trace eval eval-judge gate lint
+.PHONY: run voice telegram trace eval eval-judge gate lint
 
 run:            ## chat with Jarvis in the terminal
 	python -m jarvis
+
+voice:          ## talk to it — push-to-talk (pip install -e '.[voice]')
+	python -m jarvis voice
 
 telegram:       ## phone → laptop (needs TELEGRAM_BOT_TOKEN in .env)
 	python -m jarvis telegram

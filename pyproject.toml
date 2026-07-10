@@ -29,6 +29,12 @@ tracing = [
 telegram = [
     "python-telegram-bot>=21.0",
 ]
+# Optional gateway: talk to your laptop. TTS uses macOS `say` by default;
+# for the neural British voice: pip install kokoro soundfile (pulls torch).
+voice = [
+    "faster-whisper>=1.0",
+    "sounddevice>=0.4",
+]
 # Optional semantic-memory upgrade path: Supabase pgvector (see launch-rag)
 supabase = [
     "supabase>=2.0",
