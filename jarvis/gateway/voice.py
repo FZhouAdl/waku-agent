@@ -39,7 +39,7 @@ def record_until_enter():
         frames.append(indata.copy())
 
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", callback=collect):
-        input("🎙  recording — press Enter when done… ")
+        input("recording — press Enter when done… ")
     if not frames:
         return np.zeros(0, dtype="float32")
     return np.concatenate(frames)[:, 0]
@@ -177,7 +177,7 @@ def wake_loop(jarvis: Jarvis, mouth: "Mouth", wake_word: str) -> None:
     print(f'Listening for "{wake_word}" — Ctrl-C to quit.')
 
     def status(msg: str) -> None:
-        sys.stdout.write(f"\r\x1b[2m👂 {msg[:70]:<70}\x1b[0m")
+        sys.stdout.write(f"\r\x1b[2m{msg[:72]:<72}\x1b[0m")
         sys.stdout.flush()
 
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype="float32", blocksize=block) as stream:
@@ -196,16 +196,16 @@ def wake_loop(jarvis: Jarvis, mouth: "Mouth", wake_word: str) -> None:
             window = window[-5:]  # keep a 0.5s tail so the phrase can straddle chunks
 
             if float(np.sqrt((chunk**2).mean())) < _mic_threshold():
-                status("listening…")
+                status("· listening…")
                 continue
             heard_scan = scout.transcribe(chunk, language=wake_lang)
             if not matches_wake(heard_scan, wake_word):
-                status(f'heard: "{heard_scan}"' if heard_scan else "listening…")
+                status(f'· heard: "{heard_scan}"' if heard_scan else "· listening…")
                 if heard_scan:  # near-misses belong in the trace (wake tuning!)
                     jarvis.tracer.event("wake_scan", {"heard": heard_scan, "matched": False})
                 continue
 
-            print("\n🔔 wake word!")
+            print("\n[wake word]")
             mouth.speak(ack)
             drain()  # don't transcribe the ack playing over the mic
             heard = ears.transcribe(record_command(stream))
@@ -243,7 +243,7 @@ def main() -> None:
     print("Voice Jarvis ready. Press Enter to talk, Ctrl-C to quit.")
     while True:
         try:
-            input("\n⏎ press Enter to talk… ")
+            input("\npress Enter to talk… ")
             audio = record_until_enter()
         except (EOFError, KeyboardInterrupt):
             break

@@ -18,11 +18,11 @@ console = Console()
 def _observer(kind: str, event: dict) -> None:
     """Show the loop's internals live — the video's 'transparent harness' beat."""
     if kind == "tool":
-        console.print(f"  [dim]⚙ {event['tool']}({event['args']}) → {event['output'][:80]}[/dim]")
+        console.print(f"  [dim]tool · {event['tool']}({event['args']}) → {event['output'][:80]}[/dim]")
     elif kind == "gate":
-        console.print(f"  [dim]🚪 retrieval gate: {event['decision']} — {event.get('reason','')}[/dim]")
+        console.print(f"  [dim]gate · {event['decision']} — {event.get('reason','')}[/dim]")
     elif kind == "consolidation":
-        console.print(f"  [dim]🧠 consolidated {event['new_facts']} fact(s) from recent chats[/dim]")
+        console.print(f"  [dim]memory · consolidated {event['new_facts']} fact(s) from recent chats[/dim]")
 
 
 def main() -> None:
