@@ -23,6 +23,7 @@ import subprocess
 import sys
 
 from jarvis.app import Jarvis
+from jarvis.gateway.cli import _observer  # show gate/tool lines in voice mode too
 
 SAMPLE_RATE = 16000
 
@@ -163,7 +164,7 @@ def wake_loop(jarvis: Jarvis, mouth: "Mouth", wake_word: str) -> None:
             print("(didn't catch that)")
             continue
         print(f"you › {heard}")
-        result = jarvis.respond(heard)
+        result = jarvis.respond(heard, observer=_observer)
         print(f"jarvis › {result.reply}")
         mouth.speak(result.reply)
 
@@ -205,7 +206,7 @@ def main() -> None:
             continue
         print(f"you › {heard}")
 
-        result = jarvis.respond(heard)
+        result = jarvis.respond(heard, observer=_observer)
         print(f"jarvis › {result.reply}")
         mouth.speak(result.reply)
 
