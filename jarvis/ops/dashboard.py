@@ -201,6 +201,7 @@ def collect() -> dict:
         "facts": rows("SELECT subject, content, source, created_at FROM facts ORDER BY id DESC"),
         "episodes": rows("SELECT happened_at, summary FROM episodes ORDER BY happened_at DESC"),
         "chat_pending": conn.execute("SELECT COUNT(*) FROM chat_log WHERE consolidated=0").fetchone()[0],
+        "chat_log": rows("SELECT role, content, consolidated, created_at FROM chat_log ORDER BY id DESC LIMIT 60")[::-1],
         "consolidate_every": settings.consolidate_every,
         "calendar": rows('SELECT title, start, "end", attendees, created_at FROM calendar_events ORDER BY start'),
         "outbox": outbox,
@@ -319,6 +320,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   .arch .node{cursor:pointer}
   .arch .node:hover .bx{stroke:var(--accent);stroke-width:1.5}
   .arch .loopbox{fill:none;stroke:var(--accent);stroke-width:1.5}
+  .arch .memgroup{fill:var(--accent-soft);opacity:.4;stroke:var(--line2);stroke-width:1;stroke-dasharray:5 4}
   .arch .gate{fill:var(--accent-soft);stroke:var(--accent);stroke-width:1.2}
   .arch .nt{fill:var(--ink);font-size:12.5px;font-weight:600}
   .arch .ns{fill:var(--ink2);font-size:10.5px}
@@ -341,6 +343,14 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   .arch-status .live-dot{display:inline-block;width:7px;height:7px;border-radius:99px;
                background:var(--accent);margin-right:5px;vertical-align:middle;animation:pulse 1s ease-in-out infinite}
   @media (prefers-reduced-motion:reduce){.arch .flow.live{animation:none}.arch-status .live-dot{animation:none}}
+  .convo{display:flex;flex-direction:column;gap:8px}
+  .msg{border:1px solid var(--line);border-radius:9px;padding:10px 13px;max-width:78%}
+  .msg.user{align-self:flex-end;background:var(--accent-soft);border-color:transparent}
+  .msg.assistant{align-self:flex-start;background:var(--panel)}
+  .msg .who{font-size:11px;color:var(--ink3);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+  .msg .mtext{font-size:13.5px;white-space:pre-wrap;color:var(--ink)}
+  .chip-c{display:inline-block;font-size:9.5px;font-weight:600;padding:1px 6px;border-radius:99px;
+          background:var(--good-soft);color:var(--good);text-transform:none;letter-spacing:0;vertical-align:middle}
   .chatlog{display:flex;flex-direction:column;gap:10px;margin-bottom:96px}
   .bubble{align-self:flex-end;background:var(--accent);color:#fff;padding:8px 13px;
           border-radius:14px 14px 3px 14px;max-width:75%;font-size:13.5px}
@@ -370,6 +380,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <a href="#chat" data-v="chat">Chat &amp; watch</a>
   <div class="grp">System</div>
   <a href="#overview" data-v="overview">Overview</a>
+  <a href="#sessions" data-v="sessions">Sessions <span class="n" id="n-sess"></span></a>
   <a href="#loop" data-v="loop">Loop <span class="n" id="n-loop"></span></a>
   <a href="#memory" data-v="memory">Memory <span class="n" id="n-mem"></span></a>
   <a href="#tools" data-v="tools">Tools <span class="n" id="n-tools"></span></a>
@@ -486,68 +497,72 @@ function archSVG(d){
   const flow = (d2,cls="",id="") => `<path class="flow ${cls}" ${id?`id="${id}"`:""} d="${d2}"/>`;
   const flowLbl = (x,y,t,anchor="start") => `<text class="fl" x="${x}" y="${y}" text-anchor="${anchor}">${t}</text>`;
 
-  return `<div style="overflow-x:auto"><svg viewBox="0 0 960 552" class="arch" role="img">
+  return `<div style="overflow-x:auto"><svg viewBox="0 0 1020 700" class="arch" role="img">
     <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" class="head"/></marker></defs>
 
     <!-- HARNESS container -->
-    <rect class="container" x="10" y="20" width="628" height="464" rx="14"/>
-    ${lbl(28,46,"HARNESS — one ephemeral turn")}
+    <rect class="container" x="12" y="20" width="662" height="628" rx="16"/>
+    ${lbl(32,48,"HARNESS — one ephemeral turn")}
 
     <!-- the turn: gateway → working memory → loop → reply -->
-    ${box(28,64,120,52,"Gateway","cli · voice · web","chat","","gateway")}
-    ${flow("M148 90 L176 90","","e-gw-wm")}
-    ${box(176,64,132,52,"Working memory","assembled per turn","memory","","wm")}
+    ${box(32,72,128,56,"Gateway","cli · voice · web","chat","","gateway")}
+    ${flow("M160 100 L192 100","","e-gw-wm")}
+    ${box(192,72,144,56,"Working memory","assembled per turn","memory","","wm")}
 
-    <rect class="loopbox" x="336" y="58" width="150" height="118" rx="11"/>
-    ${lbl(348,50,"LOOP")}
-    ${box(348,68,126,40,"LLM agent","reason","loop","","llm")}
-    ${box(348,120,126,44,"Tools","create_event…","tools","","tools")}
-    ${flow("M401 108 L401 120")}${flow("M421 120 L421 108")}
-    ${flow("M308 90 L336 90","","e-wm-loop")}
-    ${flow("M486 100 L520 100")}${flowLbl(494,94,"reply")}
-    ${box(520,76,104,48,"Reply","→ back to you","loop","","reply")}
+    <rect class="loopbox" x="372" y="64" width="164" height="128" rx="12"/>
+    ${lbl(386,56,"LOOP")}
+    ${box(386,76,136,44,"LLM agent","reason","loop","","llm")}
+    ${box(386,132,136,48,"Tools","create_event…","tools","","tools")}
+    ${flow("M446 120 L446 132")}${flow("M468 132 L468 120")}
+    ${flow("M336 100 L372 100","","e-wm-loop")}
+    ${flow("M536 110 L576 110")}${flowLbl(546,104,"reply")}
+    ${box(576,84,110,52,"Reply","→ back to you","loop","","reply")}
     <!-- reply loops back to the gateway (next turn) -->
-    <path class="flow" id="e-reply-gw" d="M572 76 C572 40 320 40 88 62" marker-end="url(#arr)"/>
-    ${flowLbl(330,36,"next turn")}
+    <path class="flow" id="e-reply-gw" d="M632 84 C632 42 360 42 96 68" marker-end="url(#arr)"/>
+    ${flowLbl(372,38,"next turn")}
     <!-- every turn is saved for consolidation (right inner lane) -->
-    <path class="flow dash" id="e-reply-save" d="M600 118 C620 128 622 150 622 200 L622 402" marker-end="url(#arr)"/>
-    ${flowLbl(628,300,"save chats")}
+    <path class="flow dash" id="e-reply-save" d="M662 128 C684 140 686 170 686 240 L686 560" marker-end="url(#arr)"/>
+    ${flowLbl(692,360,"save chats")}
 
     <!-- retrieval gate feeding working memory (the hero) -->
-    <path class="gate" id="n-gate" d="M242 210 L318 244 L242 278 L166 244 Z"/>
-    <text class="nt" x="242" y="240" text-anchor="middle">Retrieval gate</text>
-    <text class="ns" x="242" y="258" text-anchor="middle">${s.gate_skips} skip · ${s.gate_retrieves} retrieve</text>
-    ${flow("M242 210 L242 116","dash","e-gate-wm")}${flowLbl(252,168,"only if needed")}
+    <path class="gate" id="n-gate" d="M264 250 L340 296 L264 342 L188 296 Z"/>
+    <text class="nt" x="264" y="292" text-anchor="middle">Retrieval gate</text>
+    <text class="ns" x="264" y="310" text-anchor="middle">${s.gate_skips} skip · ${s.gate_retrieves} retrieve</text>
+    ${flow("M264 250 L264 128","dash","e-gate-wm")}${flowLbl(274,196,"only if needed")}
 
-    <!-- memory pillars → one clean arrow up into the gate -->
-    ${lbl(28,318,"MEMORY — three pillars")}
-    ${box(28,330,188,54,"Procedural","SKILL.md · "+d.skills.length+" skill(s)","memory","","procedural")}
-    ${box(228,330,188,54,"Semantic · FTS5",d.facts.length+" facts","memory","","semantic")}
-    ${box(428,330,182,54,"Episodic",d.episodes.length+" episodes","memory","","episodic")}
-    ${flow("M242 330 L242 280","dash","e-mem-gate")}
+    <!-- MEMORY: grouped section with a direct link from the gate to each pillar -->
+    ${lbl(40,404,"MEMORY — three pillars")}
+    <rect class="memgroup" x="28" y="414" width="632" height="128" rx="12"/>
+    ${flow("M150 452 L246 336","dash","e-gate-proc")}
+    ${flow("M344 452 L272 344","dash","e-gate-sem")}
+    ${flow("M556 452 L286 338","dash","e-gate-epi")}
+    ${flowLbl(360,392,"the gate reads all three",'middle')}
+    ${box(44,452,212,72,"Procedural","how to act · SKILL.md · "+d.skills.length+" skill(s)","memory","","procedural")}
+    ${box(268,452,212,72,"Semantic · FTS5","durable facts · "+d.facts.length+" facts","memory","","semantic")}
+    ${box(492,452,152,72,"Episodic",d.episodes.length+" episodes","memory","","episodic")}
 
-    <!-- consolidation, one short arrow up -->
-    ${box(28,414,582,50,"Consolidation · every "+d.consolidate_every+" exchanges",d.chat_pending+"/"+d.consolidate_every*2+" queued → distilled into facts","memory","","consolidation")}
-    ${flow("M300 414 L300 386","","e-consol-sem")}${flowLbl(310,404,"distill")}
+    <!-- consolidation writes back into memory -->
+    ${box(44,576,600,52,"Consolidation · every "+d.consolidate_every+" exchanges",d.chat_pending+"/"+d.consolidate_every*2+" queued → distilled into facts","memory","","consolidation")}
+    ${flow("M340 576 L340 528","","e-consol-sem")}${flowLbl(350,560,"distill")}
 
     <!-- LLM OPS: the outer loop — observes the run, then improves it -->
-    <rect class="container ops" x="664" y="20" width="288" height="360" rx="14"/>
-    ${lbl(682,46,"LLM OPS — the outer loop")}
+    <rect class="container ops" x="700" y="20" width="308" height="392" rx="16"/>
+    ${lbl(720,48,"LLM OPS — the outer loop")}
     <!-- every turn feeds the trace -->
-    <path class="flow" id="e-reply-trace" d="M624 96 C650 90 662 84 682 82" marker-end="url(#arr)"/>
-    ${flowLbl(636,74,"each turn")}
-    ${box(682,60,252,48,"Trace",s.trace_files+" file(s) · always on","ops","","trace")}
-    ${flow("M808 108 L808 124")}
-    ${box(682,124,252,48,"Eval","deterministic + judge","ops")}
-    ${flow("M808 172 L808 188")}
-    ${box(682,188,252,48,"Release gate",d.eval_report?"det "+d.eval_report.deterministic+" · judge "+d.eval_report.judge:"run make gate","ops")}
-    ${flow("M808 236 L808 252")}
-    ${box(682,252,252,48,"Release","new prompt · model · config","ops")}
+    <path class="flow" id="e-reply-trace" d="M686 106 C712 98 724 92 748 90" marker-end="url(#arr)"/>
+    ${flowLbl(700,82,"each turn")}
+    ${box(720,68,272,52,"Trace",s.trace_files+" file(s) · always on","ops","","trace")}
+    ${flow("M856 120 L856 138")}
+    ${box(720,138,272,52,"Eval","deterministic + judge","ops")}
+    ${flow("M856 190 L856 208")}
+    ${box(720,208,272,52,"Release gate",d.eval_report?"det "+d.eval_report.deterministic+" · judge "+d.eval_report.judge:"run make gate","ops")}
+    ${flow("M856 260 L856 278")}
+    ${box(720,278,272,52,"Release","new prompt · model · config","ops")}
     <!-- feedback: release improves the harness — the outer loop closes,
          routed under everything in open canvas so it crosses nothing -->
-    <path class="flow dash" d="M808 300 V524 H20 V90 H26" marker-end="url(#arr)"/>
-    ${flowLbl(414,518,"improved prompt + config",'middle')}
+    <path class="flow dash" d="M856 330 V672 H24 V100 H30" marker-end="url(#arr)"/>
+    ${flowLbl(430,666,"improved prompt + config",'middle')}
   </svg></div>`;
 }
 
@@ -568,6 +583,20 @@ const VIEWS = {
   },
   loop(d){
     return d.turns.length ? d.turns.map(turnCard).join("") : `<div class="card empty">no turns yet</div>`;
+  },
+  sessions(d){
+    // the persistent conversation (working-memory history) across ALL gateways —
+    // the "Current Chat History" box from the whiteboard, made real.
+    const log = d.chat_log || [];
+    if (!log.length) return `<div class="card empty">no conversation yet — talk to Jarvis and it shows up here</div>`;
+    let h = `<div class="meta" style="margin-bottom:12px">The running conversation Jarvis remembers — every gateway (browser, phone, CLI) writes here. Rows marked <span class="chip-c">consolidated</span> have been distilled into semantic + episodic memory.</div>`;
+    h += `<div class="convo">` + log.map(m => `
+      <div class="msg ${m.role}">
+        <div class="who">${m.role==="user"?"you":"jarvis"}${m.consolidated?` <span class="chip-c">consolidated</span>`:""}</div>
+        <div class="mtext">${esc(m.content)}</div>
+        <div class="meta" style="margin-top:4px">${esc((m.created_at||"").slice(0,19))}</div>
+      </div>`).join("") + `</div>`;
+    return h;
   },
   memory(d){
     let h = `<h2>Semantic — durable facts</h2>`;
@@ -650,10 +679,12 @@ function animateStage(ev){
   if (!spec || !document.querySelector(".arch")) return;
   const status = document.getElementById("arch-status");
   if (status) status.innerHTML = `<span class="live-dot"></span>${spec.label}`;
-  spec.nodes.forEach(n => hot("#n-"+n, n==="gate" ? "hot" : "hot", 950));
-  spec.edges.forEach(e => hot("#"+e, "live", 950));
-  if (ev.type==="gate" && ev.decision==="retrieve")
-    ["procedural","semantic","episodic"].forEach(n => { hot("#n-"+n,"hot",950); hot("#e-mem-gate","live",950); });
+  spec.nodes.forEach(n => hot("#n-"+n, "hot", 1000));
+  spec.edges.forEach(e => hot("#"+e, "live", 1000));
+  if (ev.type==="gate" && ev.decision==="retrieve"){
+    ["procedural","semantic","episodic"].forEach(n => hot("#n-"+n,"hot",1000));
+    ["e-gate-proc","e-gate-sem","e-gate-epi"].forEach(e => hot("#"+e,"live",1000));
+  }
 }
 function playNext(){
   if (!evQueue.length){ playing=false; animating=false;
@@ -693,6 +724,7 @@ function render(){
   }
   activeView = view;
   document.getElementById("model").textContent = `${D.provider} · ${D.model}`;
+  document.getElementById("n-sess").textContent = (D.chat_log||[]).length;
   document.getElementById("n-loop").textContent = D.stats.turns;
   document.getElementById("n-mem").textContent = D.facts.length + D.episodes.length;
   document.getElementById("n-tools").textContent = D.calendar.length + D.outbox.length;
