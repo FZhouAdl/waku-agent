@@ -74,6 +74,25 @@ Every tab is a window into one pillar, and each links straight to the real local
 The sidebar and chat dock are drag-resizable and hideable, and the chat has *New chat* +
 history like any chat app.
 
+## Things to try (each shows off a pillar)
+
+Type these in the chat dock (or `make run`) and watch the dashboard light up:
+
+| Try this | What it shows | Where to watch |
+|---|---|---|
+| *"Schedule a tennis game with Raj this Saturday at 8am"* | the Loop calls a tool (`create_event`) | the **LOOP** box pulses; **Loop** tab shows `iter 2` |
+| *"What's on my calendar today?"* | reading the calendar (`list_events`) | it answers from `state.db`, no made-up events |
+| *"When am I swimming with Sergey?"* then *"what's 12 × 8?"* | the **retrieval gate** — retrieve vs skip | Overview gate bar; **Ops** shows the per-turn decision |
+| *"Remember that Raj prefers evening games"* | memory self-management (`save_note`) | **Memory ▸ Semantic** gains a fact; `MEMORY.md` updates |
+| *"Search for the World Cup games still left to play and add each one to my calendar"* | **multi-tool loop engineering** | **Loop** tab shows `iter 8`: `search_web` × N → `create_event` × N |
+| chat from `make run` **and** the browser | one brain, many gateways | the **Gateway** tab tags each message `cli` / `dashboard` |
+
+**The money shot** is the World Cup one: in a single turn the agent searches the web several
+times, reasons over the results, and books every remaining match — the loop runs **8 iterations**.
+It needs a free `TAVILY_API_KEY` for reliable search (paste it on the **Settings** page). Watch the
+**LOOP** box pulse once per cycle and the iteration count climb on the **Loop** tab — that's loop
+engineering, on tape.
+
 ## How is this different from Claude Desktop / ChatGPT / Cowork?
 
 Those are excellent products you *use*. This is a small codebase you *own*: every
