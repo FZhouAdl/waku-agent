@@ -89,7 +89,13 @@ flowchart LR
   MEM -->|every N chats| CONS["Consolidate → facts"] --> MEM
   REPLY --> OPS["LLM Ops<br/>trace → eval → gate → release"]
   OPS -. improved prompt/config .-> WM
+  WM -.- WATERMARK["launch-jarvis · Sean's AI Stories · @ShenSeanChen"]:::wm
+  classDef wm fill:none,stroke:none,color:#9aa0aa,font-size:11px;
 ```
+
+> _Architecture of **launch-jarvis** — built on [Sean's AI Stories](https://www.youtube.com/@SeanAIStories)
+> ([@ShenSeanChen](https://github.com/ShenSeanChen)). Code is MIT; **this diagram is licensed CC BY-NC-SA 4.0** —
+> reuse it with credit to the channel, not for commercial resale._
 
 Every box is one module (full version with every file path: [docs/architecture.md](docs/architecture.md)):
 
