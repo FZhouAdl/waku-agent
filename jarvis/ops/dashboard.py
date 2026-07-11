@@ -55,7 +55,8 @@ def chat(message: str) -> dict:
     with _agent_lock:
         agent = _get_agent()
         start = datetime.now(timezone.utc)
-        result = agent.respond(message, observer=lambda kind, ev: events.append({"kind": kind, **ev}))
+        result = agent.respond(message, observer=lambda kind, ev: events.append({"kind": kind, **ev}),
+                               source="dashboard")
         latency_ms = int((datetime.now(timezone.utc) - start).total_seconds() * 1000)
 
     gate = next((e for e in events if e["kind"] == "gate"), None)
@@ -246,7 +247,7 @@ def collect() -> dict:
         "episodes": rows("SELECT id, happened_at, summary FROM episodes ORDER BY happened_at DESC"),
         "soul": (home / "SOUL.md").read_text() if (home / "SOUL.md").exists() else "",
         "chat_pending": conn.execute("SELECT COUNT(*) FROM chat_log WHERE consolidated=0").fetchone()[0],
-        "chat_log": rows("SELECT role, content, consolidated, created_at FROM chat_log ORDER BY id DESC LIMIT 60")[::-1],
+        "chat_log": rows("SELECT role, content, consolidated, source, session_id, created_at FROM chat_log ORDER BY id DESC LIMIT 80")[::-1],
         "sessions": session_list(conn),
         "current_session": (_agent.session.session_id if _agent is not None else "default"),
         "consolidate_every": settings.consolidate_every,
@@ -381,6 +382,42 @@ def run_query(payload: dict) -> dict:
         return {"columns": cols, "rows": data}
     except sqlite3.Error as exc:
         return {"error": str(exc)}
+
+
+_whisper = None
+_whisper_lock = threading.Lock()
+
+
+def transcribe_audio(raw: bytes) -> dict:
+    """Server-side speech-to-text for the dashboard mic button — the SAME local
+    Whisper (`make voice` uses it), so voice works in the browser without any
+    cloud. Needs the [voice] extra. Returns {text} or a friendly {error}."""
+    if not raw:
+        return {"error": "no audio received"}
+    try:
+        from faster_whisper import WhisperModel
+    except ImportError:
+        return {"error": "voice isn't installed — run: pip install -e '.[voice]'"}
+    global _whisper
+    import os as _os
+    import tempfile
+
+    with _whisper_lock:
+        if _whisper is None:
+            _whisper = WhisperModel(os.getenv("JARVIS_WHISPER_MODEL", "base"), compute_type="int8")
+    tmp = tempfile.NamedTemporaryFile(suffix=".webm", delete=False)
+    tmp.write(raw)
+    tmp.close()
+    try:
+        segments, _ = _whisper.transcribe(tmp.name)
+        return {"text": " ".join(s.text for s in segments).strip()}
+    except Exception as exc:
+        return {"error": f"transcription failed: {exc}"}
+    finally:
+        try:
+            _os.unlink(tmp.name)
+        except OSError:
+            pass
 
 
 def session_action(payload: dict) -> dict:
@@ -603,8 +640,18 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   body{background:var(--bg);color:var(--ink);
        font:14px/1.55 -apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
        display:flex;height:100vh;overflow:hidden}
-  nav{width:208px;flex-shrink:0;border-right:1px solid var(--line);padding:20px 12px;
+  nav{width:var(--nav-w,208px);flex-shrink:0;border-right:1px solid var(--line);padding:20px 12px;
       height:100vh;overflow-y:auto}
+  /* drag handles between the three columns + elegant hide/show */
+  .resizer{flex-shrink:0;width:5px;height:100vh;cursor:col-resize;background:transparent}
+  .resizer:hover,body.resizing .resizer{background:var(--accent-soft)}
+  body.resizing{cursor:col-resize;user-select:none}
+  #nav-toggle{float:right;background:none;border:none;color:var(--ink3);cursor:pointer;font-size:12px;padding:2px 4px;line-height:1}
+  #nav-toggle:hover{color:var(--ink)}
+  #nav-reopen{display:none;position:fixed;top:12px;left:12px;z-index:25;background:var(--panel);
+    border:1px solid var(--line2);border-radius:8px;color:var(--ink2);width:34px;height:30px;cursor:pointer;font-size:14px}
+  body.nav-hidden #nav,body.nav-hidden #nav-resizer{display:none}
+  body.nav-hidden #nav-reopen{display:block}
   .brand{font-weight:650;font-size:15px;padding:0 10px 4px}
   .brand small{display:block;color:var(--ink3);font-weight:400;font-size:11px;margin-top:2px}
   nav a{display:flex;justify-content:space-between;align-items:center;color:var(--ink2);
@@ -775,8 +822,20 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   .chatbar{display:flex;gap:10px;padding:12px 0;border-top:1px solid var(--line);
            background:var(--bg);position:sticky;bottom:0}
   /* the chat side-dock: chat from any tab, watch the harness in main */
-  #dock{width:380px;flex-shrink:0;border-left:1px solid var(--line);position:sticky;top:0;
+  #dock{width:var(--dock-w,380px);flex-shrink:0;border-left:1px solid var(--line);
         height:100vh;display:flex;flex-direction:column;background:var(--bg);padding:0 14px}
+  /* gateway source tags (which channel a message came in through) */
+  .gwtag{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+         padding:1px 6px;border-radius:99px;vertical-align:middle;margin-left:6px;
+         border:1px solid var(--line2);color:var(--ink2)}
+  .gwtag.dashboard{color:var(--accent);border-color:var(--accent)}
+  .gwtag.telegram{color:#2b90c6;border-color:#2b90c6}
+  .gwtag.voice{color:#22a06b;border-color:#22a06b}
+  .gwtag.brief{color:#b0870f;border-color:#b0870f}
+  #mic{background:var(--panel);border:1px solid var(--line2);border-radius:8px;color:var(--ink2);
+       padding:0 12px;cursor:pointer;font-size:15px}
+  #mic:hover{border-color:var(--accent);color:var(--accent)}
+  #mic.rec{background:var(--bad);color:#fff;border-color:var(--bad);animation:pulse 1s infinite}
   .dockhead{display:flex;align-items:center;gap:10px;padding:18px 2px 10px;
             border-bottom:1px solid var(--line)}
   .dockhead .dt{font-weight:650;font-size:14px}
@@ -789,10 +848,8 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
                background:var(--accent);color:#fff;border:none;border-radius:99px;
                padding:9px 16px;font-weight:600;font-size:13px;cursor:pointer;
                box-shadow:0 2px 10px rgba(0,0,0,.25)}
-  body.dock-closed #dock{display:none}
+  body.dock-closed #dock,body.dock-closed #dock-resizer{display:none}
   body.dock-closed #dock-reopen{display:block}
-  body.dock-hidden #dock{display:none}
-  body.dock-hidden #dock-reopen{display:none}
   .chatbar input{flex:1;background:var(--panel);border:1px solid var(--line2);border-radius:8px;
                  padding:10px 14px;color:var(--ink);font-size:14px;outline:none}
   .chatbar input:focus{border-color:var(--accent)}
@@ -811,13 +868,12 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   code{font-family:var(--mono);font-size:12px;background:var(--bg);border:1px solid var(--line);
        padding:1px 5px;border-radius:4px}
 </style></head><body>
-<nav>
-  <div class="brand">Jarvis<small id="model"></small></div>
-  <div class="grp">Test</div>
-  <a href="#chat" data-v="chat">Chat &amp; watch</a>
+<nav id="nav">
+  <div class="brand">Jarvis<small id="model"></small>
+    <button id="nav-toggle" title="Hide sidebar">&#10094;</button></div>
   <div class="grp">System</div>
   <a href="#overview" data-v="overview">Overview</a>
-  <a href="#sessions" data-v="sessions">Sessions <span class="n" id="n-sess"></span></a>
+  <a href="#gateway" data-v="gateway">Gateway <span class="n" id="n-gw"></span></a>
   <a href="#loop" data-v="loop">Loop <span class="n" id="n-loop"></span></a>
   <a href="#memory" data-v="memory">Memory <span class="n" id="n-mem"></span></a>
   <a href="#tools" data-v="tools">Tools <span class="n" id="n-tools"></span></a>
@@ -825,6 +881,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <a href="#ops" data-v="ops">Ops <span class="n" id="n-ops"></span></a>
   <a href="#settings" data-v="settings">Settings</a>
 </nav>
+<div class="resizer" id="nav-resizer" title="Drag to resize sidebar"></div>
 <main>
   <header class="pagehead">
     <h1 id="title">Overview</h1>
@@ -832,6 +889,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   </header>
   <div id="view"></div>
 </main>
+<div class="resizer" id="dock-resizer" title="Drag to resize chat"></div>
 <aside id="dock">
   <div class="dockhead">
     <span class="dt">Chat</span>
@@ -845,9 +903,11 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
   <div class="chatlog" id="docklog"></div>
   <div class="chatbar">
     <input id="dmsg" placeholder="Message Jarvis&hellip;" autocomplete="off">
+    <button id="mic" title="Click to talk — local Whisper, no cloud"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
     <button id="dsend">Send</button>
   </div>
 </aside>
+<button id="nav-reopen" title="Show sidebar">&#9776;</button>
 <button id="dock-reopen" title="Open chat">&lsaquo; Chat</button>
 <script>
 const esc = s => (s??"").toString().replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
@@ -955,26 +1015,11 @@ const chatTurnCard = t => `<div class="card">
 
 function renderChatLog(){
   if (!CHAT.length)
-    return `<div class="empty" style="padding:6px 2px">Send a message below and watch it flow through the harness above — the same pipeline the phone, voice, and CLI gateways drive.</div>`;
+    return `<div class="empty" style="padding:6px 2px">Message Jarvis here from any tab. Open Overview to watch it flow through the harness, or the Gateway tab to see every channel's messages together.</div>`;
   return CHAT.map(m => m.role==="user"
       ? `<div class="bubble">${esc(m.text)}</div>`
       : m.pending ? `<div class="card"><div class="stages"><span class="stage on">gate</span><span class="stage">loop</span><span class="stage">tools</span><span class="stage">reply</span></div><div class="meta" style="margin:0">running the harness…</div></div>`
       : chatTurnCard(m)).join("");
-}
-
-function chatView(){
-  // The diagram lives IN this tab so you type and watch the harness light up in
-  // one place. It's built once; sendChat only re-renders the conversation, so
-  // the SVG persists and the trace-event animation plays on it uninterrupted.
-  return `
-    ${sessBar()}
-    <div class="watchhead">Live harness — your message flows through this <span class="arch-status"></span></div>
-    <div class="chat-arch">${archSVG(D)}</div>
-    <div class="chatlog" id="chatlog">${renderChatLog()}</div>
-    <div class="chatbar">
-      <input id="msg" placeholder="Message Jarvis — e.g. schedule a swim with Sergey Saturday 5pm" autocomplete="off">
-      <button id="send">Send</button>
-    </div>`;
 }
 
 function syncChatLogs(){
@@ -983,10 +1028,6 @@ function syncChatLogs(){
     el.innerHTML = renderChatLog();
     el.scrollTop = el.scrollHeight;      // dock scrolls its own container
   });
-  if ((location.hash||"#chat").split("/")[0] === "#chat"){
-    const m = document.querySelector("main");   // main is the scroll container now
-    if (m) m.scrollTo({top:0, behavior:"smooth"});  // tab: keep the diagram in view
-  }
 }
 
 async function sendChat(fromInput){
@@ -1004,12 +1045,6 @@ async function sendChat(fromInput){
   } catch(e){ Object.assign(pending, {pending:false, reply:"Error: "+e}); }
   syncChatLogs();
   input.focus();
-}
-function wireChat(){
-  const b = document.getElementById("send"), i = document.getElementById("msg");
-  if (b) b.onclick = () => sendChat(i);
-  if (i){ i.focus(); i.onkeydown = e => { if (e.key==="Enter") sendChat(i); }; }
-  syncChatLogs();
 }
 function wireDock(){
   const b = document.getElementById("dsend"), i = document.getElementById("dmsg");
@@ -1193,11 +1228,6 @@ document.addEventListener("click", e => {
   const m = document.getElementById("sessmenu");
   if (m && !m.contains(e.target)) closeSessMenu();
 });
-const sessBar = () => `<div class="sesshead">
-    <button class="sessbtn" onclick="newChat()">+ New chat</button>
-    <button class="sessbtn" onclick="toggleSessMenu(event)">History &#9662;</button>
-  </div>`;
-
 // --- read-only SQL console (item: "a simple query editor like Supabase")
 function qFill(sql){ const b=document.getElementById("sqlbox"); if(b){ b.value=sql; runQuery(); } }
 async function runQuery(){
@@ -1348,7 +1378,27 @@ function toolsMCP(t){
 }
 
 const VIEWS = {
-  chat(){ return chatView(); },
+  // Gateway: ONE unified conversation across every channel (dashboard, telegram,
+  // voice, cli) — the same loop + memory answer all of them. Each message is
+  // tagged with where it came in, Hermes-style. You type in the dock on the right.
+  gateway(d){
+    const log = d.chat_log || [];
+    const counts = {};
+    log.forEach(m => { const s = m.source||"cli"; counts[s] = (counts[s]||0)+1; });
+    const legend = Object.entries(counts).map(([s,n]) =>
+      `<span class="gwtag ${esc(s)}">${esc(s)}</span>${n}`).join(" &nbsp; ");
+    let h = `<div class="meta" style="margin-bottom:14px">One conversation across every gateway — the same
+      harness answers all of them. Each message shows where it came in. Type in the chat dock on the right;
+      messages from your phone (Telegram) or voice land here too.${log.length?` &nbsp;·&nbsp; ${legend}`:""}</div>`;
+    if (!log.length) return h + `<div class="card empty">no messages yet — say something in the chat dock &rarr;</div>`;
+    h += `<div class="convo">` + log.map(m => `
+      <div class="msg ${m.role}">
+        <div class="who">${m.role==="user"?"you":"jarvis"}<span class="gwtag ${esc(m.source||"cli")}">${esc(m.source||"cli")}</span>${m.consolidated?` <span class="chip-c">consolidated</span>`:""}</div>
+        <div class="mtext">${esc(m.content)}</div>
+        <div class="meta" style="margin-top:4px">${esc((m.created_at||"").slice(0,19))}</div>
+      </div>`).join("") + `</div>`;
+    return h;
+  },
   overview(d){
     const s = d.stats;
     const tiles = [
@@ -1364,20 +1414,6 @@ const VIEWS = {
   },
   loop(d){
     return d.turns.length ? d.turns.map(turnCard).join("") : `<div class="card empty">no turns yet</div>`;
-  },
-  sessions(d){
-    // the persistent conversation (working-memory history) across ALL gateways —
-    // the "Current Chat History" box from the whiteboard, made real.
-    const log = d.chat_log || [];
-    if (!log.length) return `<div class="card empty">no conversation yet — talk to Jarvis and it shows up here</div>`;
-    let h = `<div class="meta" style="margin-bottom:12px">The running conversation Jarvis remembers — every gateway (browser, phone, CLI) writes here. Rows marked <span class="chip-c">consolidated</span> have been distilled into semantic + episodic memory.</div>`;
-    h += `<div class="convo">` + log.map(m => `
-      <div class="msg ${m.role}">
-        <div class="who">${m.role==="user"?"you":"jarvis"}${m.consolidated?` <span class="chip-c">consolidated</span>`:""}</div>
-        <div class="mtext">${esc(m.content)}</div>
-        <div class="meta" style="margin-top:4px">${esc((m.created_at||"").slice(0,19))}</div>
-      </div>`).join("") + `</div>`;
-    return h;
   },
   memory(d, sub){
     sub = sub || "overview";
@@ -1586,18 +1622,13 @@ const TITLES = {chat:"Chat & watch", ops:"LLM Ops",
                 database:"Data — everything Jarvis stores (state.db)"};
 function render(){
   if (!D) return;
-  const [v, subRaw] = (location.hash||"#chat").slice(1).split("/");
+  const [v, subRaw] = (location.hash||"#overview").slice(1).split("/");
   const sub = subRaw || null;
   const view = VIEWS[v] ? v : "overview";
   const subChanged = sub !== activeSub || view !== activeView;
-  document.body.classList.toggle("dock-hidden", view === "chat");  // never two chat inputs
   document.querySelectorAll("nav a").forEach(a=>a.classList.toggle("on", a.dataset.v===view));
   document.getElementById("title").textContent = TITLES[view] || view[0].toUpperCase()+view.slice(1);
-  // Chat owns its DOM (don't wipe the input mid-type on the 5s refresh);
-  // (re)build it only when first entering the tab.
-  if (view === "chat"){
-    if (activeView !== "chat"){ document.getElementById("view").innerHTML = chatView(); wireChat(); }
-  } else if (view === "overview"){
+  if (view === "overview"){
     // don't rebuild mid-animation or the glowing SVG gets wiped
     if (activeView !== "overview" || !animating){ document.getElementById("view").innerHTML = VIEWS.overview(D); }
   } else if ((view === "memory" || view === "settings") && editing && !subChanged){
@@ -1608,7 +1639,7 @@ function render(){
   }
   activeView = view; activeSub = sub;
   document.getElementById("model").textContent = `${D.provider} · ${D.model}`;
-  document.getElementById("n-sess").textContent = (D.chat_log||[]).length;
+  document.getElementById("n-gw").textContent = (D.chat_log||[]).length;
   document.getElementById("n-loop").textContent = D.stats.turns;
   document.getElementById("n-mem").textContent = D.facts.length + D.episodes.length;
   document.getElementById("n-tools").textContent = D.calendar.length + D.outbox.length;
@@ -1626,9 +1657,70 @@ async function refresh(){
   try { D = await (await fetch("/api/data")).json(); lastFetch = Date.now(); render(); tickLive(); }
   catch(e){ /* server restarting — keep showing last data */ }
 }
+// --- resizable columns: drag the thin handle between nav|main and main|dock.
+// Width lives in a CSS var + localStorage, so it survives refreshes.
+function wireResizer(id, cssVar, key, fromRight, min, max){
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.onmousedown = e => {
+    e.preventDefault();
+    document.body.classList.add("resizing");
+    const move = ev => {
+      let w = fromRight ? (window.innerWidth - ev.clientX) : ev.clientX;
+      w = Math.max(min, Math.min(max, w));
+      document.documentElement.style.setProperty(cssVar, w + "px");
+      localStorage.setItem(key, w);
+    };
+    const up = () => { document.body.classList.remove("resizing");
+      document.removeEventListener("mousemove", move); document.removeEventListener("mouseup", up); };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  };
+}
+function wireChrome(){
+  // restore saved widths
+  const nw = localStorage.getItem("navW"); if (nw) document.documentElement.style.setProperty("--nav-w", nw+"px");
+  const dw = localStorage.getItem("dockW"); if (dw) document.documentElement.style.setProperty("--dock-w", dw+"px");
+  wireResizer("nav-resizer", "--nav-w", "navW", false, 150, 380);
+  wireResizer("dock-resizer", "--dock-w", "dockW", true, 260, 680);
+  // hide / show the sidebar
+  const setNav = v => { document.body.classList.toggle("nav-hidden", v); localStorage.setItem("navHidden", v?"1":"0"); };
+  const nt = document.getElementById("nav-toggle"), nr = document.getElementById("nav-reopen");
+  if (nt) nt.onclick = () => setNav(true);
+  if (nr) nr.onclick = () => setNav(false);
+  setNav(localStorage.getItem("navHidden") === "1");
+}
+
+// --- voice on the dashboard: record in the browser, transcribe on the server
+// with the SAME local Whisper `make voice` uses. Text lands in the input for
+// you to review, then Send — nothing leaves the machine.
+let mediaRec = null, audioChunks = [];
+async function toggleMic(){
+  const btn = document.getElementById("mic"), input = document.getElementById("dmsg");
+  if (mediaRec && mediaRec.state === "recording"){ mediaRec.stop(); return; }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    mediaRec = new MediaRecorder(stream); audioChunks = [];
+    mediaRec.ondataavailable = e => audioChunks.push(e.data);
+    mediaRec.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      btn.classList.remove("rec");
+      const hold = input.placeholder; input.placeholder = "transcribing…";
+      const blob = new Blob(audioChunks, {type:"audio/webm"});
+      let r; try { r = await (await fetch("/api/voice", {method:"POST", body:blob})).json(); }
+      catch(e){ r = {error:String(e)}; }
+      input.placeholder = hold;
+      if (r.error){ input.value = ""; input.placeholder = r.error; return; }
+      if (r.text){ input.value = r.text; input.focus(); }
+    };
+    mediaRec.start(); btn.classList.add("rec");
+  } catch(e){ if (input) input.placeholder = "mic unavailable — " + e; }
+}
+function wireMic(){ const b = document.getElementById("mic"); if (b) b.onclick = toggleMic; }
+
 window.addEventListener("hashchange", render);
 window.__hold = (v)=>{ animating = v; };   // test hook: freeze the diagram
-wireDock();
+wireDock(); wireChrome(); wireMic();
 refresh(); setInterval(refresh, 5000); setInterval(tickLive, 1000);
 pollEvents(); setInterval(pollEvents, 450);   // live harness animation
 </script></body></html>"""
@@ -1660,13 +1752,18 @@ class Handler(BaseHTTPRequestHandler):
             self._send(PAGE.encode(), "text/html; charset=utf-8")
 
     def do_POST(self):  # noqa: N802 — local write endpoints
+        length = int(self.headers.get("Content-Length", 0))
+        # /api/voice takes a raw audio blob, not JSON — handle it first.
+        if self.path == "/api/voice":
+            raw = self.rfile.read(length)
+            self._send(json.dumps(transcribe_audio(raw)).encode(), "application/json")
+            return
         routes = {"/api/chat": None, "/api/memory": memory_action, "/api/settings": apply_settings,
                   "/api/query": run_query, "/api/session": session_action}
         if self.path not in routes:
             self.send_response(404)
             self.end_headers()
             return
-        length = int(self.headers.get("Content-Length", 0))
         payload = json.loads(self.rfile.read(length) or "{}")
         try:
             if self.path == "/api/chat":

@@ -39,8 +39,11 @@ class Jarvis:
         if self.mcp_bridge is not None:
             self.mcp_bridge.close()
 
-    def respond(self, user_message: str, observer: Observer | None = None) -> LoopResult:
+    def respond(self, user_message: str, observer: Observer | None = None,
+                source: str = "cli") -> LoopResult:
         """One full turn: assemble working memory → run the loop → persist.
+        `source` tags which gateway the message arrived through (cli / voice /
+        telegram / dashboard), so the unified chat can show its origin.
         Everything that happens is both shown (observer) and recorded (tracer)."""
         notify = compose(observer, self.tracer.event)
 
@@ -59,7 +62,8 @@ class Jarvis:
                 observer=notify,
             )
 
-            self.session.add_exchange(user_message, result.reply, tool_calls=result.tool_calls)
+            self.session.add_exchange(user_message, result.reply, tool_calls=result.tool_calls,
+                                      source=source)
             if self.memory is not None:
                 self.memory.maybe_consolidate(notify=notify)
 

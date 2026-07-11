@@ -61,14 +61,15 @@ class Memory:
         return "\n\n".join(f"### {s.name}\n{s.body}" for s in matched)
 
     # ---- write paths
-    def log_chat(self, user_message: str, reply: str, session_id: str = "default") -> None:
+    def log_chat(self, user_message: str, reply: str, session_id: str = "default",
+                 source: str = "cli") -> None:
         self.conn.execute(
-            "INSERT INTO chat_log (role, content, session_id) VALUES ('user', ?, ?)",
-            (user_message, session_id),
+            "INSERT INTO chat_log (role, content, session_id, source) VALUES ('user', ?, ?, ?)",
+            (user_message, session_id, source),
         )
         self.conn.execute(
-            "INSERT INTO chat_log (role, content, session_id) VALUES ('assistant', ?, ?)",
-            (reply, session_id),
+            "INSERT INTO chat_log (role, content, session_id, source) VALUES ('assistant', ?, ?, ?)",
+            (reply, session_id, source),
         )
         self.conn.commit()
 

@@ -213,7 +213,7 @@ def wake_loop(jarvis: Jarvis, mouth: "Mouth", wake_word: str) -> None:
                 print("(didn't catch that)")
                 continue
             print(f"you › {heard}")
-            result = jarvis.respond(heard, observer=_observer)
+            result = jarvis.respond(heard, observer=_observer, source="voice")
             print(f"jarvis › {result.reply}")
             mouth.speak(result.reply)
             drain()  # ...and don't wake on the tail of the reply
@@ -257,7 +257,7 @@ def main() -> None:
             continue
         print(f"you › {heard}")
 
-        result = jarvis.respond(heard, observer=_observer)
+        result = jarvis.respond(heard, observer=_observer, source="voice")
         print(f"jarvis › {result.reply}")
         mouth.speak(result.reply)
 

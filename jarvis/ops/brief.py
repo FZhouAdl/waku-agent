@@ -24,7 +24,7 @@ def main() -> None:
     jarvis = Jarvis()
     if not jarvis.settings.apple_tools:
         console.print("[dim]Tip: set JARVIS_APPLE_TOOLS=1 to brief from your real Calendar and Mail.[/dim]")
-    result = jarvis.respond(PROMPT)
+    result = jarvis.respond(PROMPT, source="brief")
     console.print(result.reply)
     out = jarvis.settings.home / "outbox" / f"brief-{date.today().isoformat()}.txt"
     out.write_text(result.reply + "\n")

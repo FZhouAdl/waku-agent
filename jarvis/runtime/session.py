@@ -81,7 +81,8 @@ class Session:
 
         return "\n".join(parts)
 
-    def add_exchange(self, user_message: str, reply: str, tool_calls: list | None = None) -> None:
+    def add_exchange(self, user_message: str, reply: str, tool_calls: list | None = None,
+                     source: str = "cli") -> None:
         """Record the turn in history (working memory) and, if memory is wired,
         in the chat log (so consolidation can distill it later).
 
@@ -96,7 +97,7 @@ class Session:
         self.history.append({"role": "user", "content": user_message})
         self.history.append({"role": "assistant", "content": record})
         if self.memory is not None:
-            self.memory.log_chat(user_message, record, session_id=self.session_id)
+            self.memory.log_chat(user_message, record, session_id=self.session_id, source=source)
 
     # ---- session lifecycle (the "New chat" / history feature)
     # A session is just a tag on chat_log rows. Starting a new one clears working

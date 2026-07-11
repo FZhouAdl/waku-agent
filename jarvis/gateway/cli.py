@@ -42,7 +42,7 @@ def main() -> None:
             continue
         if user_message in ("/quit", "/exit"):
             break
-        result = jarvis.respond(user_message, observer=_observer)
+        result = jarvis.respond(user_message, observer=_observer, source="cli")
         console.print(f"[bold green]jarvis ›[/bold green] {result.reply}\n")
     console.print("[dim]bye — your memory stays in state.db[/dim]")
 

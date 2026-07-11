@@ -83,6 +83,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
     if "session_id" not in cols:
         conn.execute("ALTER TABLE chat_log ADD COLUMN session_id TEXT DEFAULT 'default'")
         conn.commit()
+    if "source" not in cols:
+        # which gateway a message came in through (cli / voice / telegram / dashboard)
+        conn.execute("ALTER TABLE chat_log ADD COLUMN source TEXT DEFAULT 'cli'")
+        conn.commit()
 
 
 def connect(home: Path, check_same_thread: bool = True) -> sqlite3.Connection:

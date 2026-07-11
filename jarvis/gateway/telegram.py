@@ -38,7 +38,7 @@ def main() -> None:
             await update.message.reply_text("This Jarvis serves someone else. Run your own!")
             return
         print(f"you › {update.message.text}")
-        result = jarvis.respond(update.message.text, observer=_observer)
+        result = jarvis.respond(update.message.text, observer=_observer, source="telegram")
         print(f"jarvis › {result.reply}")
         await update.message.reply_text(result.reply or "(no reply)")
 
