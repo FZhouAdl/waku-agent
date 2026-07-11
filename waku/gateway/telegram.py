@@ -27,6 +27,7 @@ def _build_app(token: str, allowed: str):
     from telegram.ext import Application, ContextTypes, MessageHandler, filters
 
     waku = Waku()
+    waku.session.session_id = "telegram"   # its own conversation thread in the inbox
 
     async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if allowed and str(update.effective_user.id) != allowed:

@@ -27,6 +27,7 @@ def _observer(kind: str, event: dict) -> None:
 
 def main() -> None:
     waku = Waku()
+    waku.session.session_id = "terminal"   # its own conversation thread in the inbox
     console.print(Panel.fit(
         "[bold]Waku[/bold] — local, yours, transparent.\n"
         f"home: {waku.settings.home.resolve()}   model: {waku.settings.model}\n"

@@ -349,6 +349,14 @@ async function switchSession(id){
   }
   closeSessMenu();
 }
+// Open a conversation from the Gateway inbox: load it into the dock (the active
+// thread) and make sure the dock is visible.
+async function openConversation(id){
+  document.body.classList.remove("dock-closed");
+  localStorage.setItem("dockClosed", "0");
+  await switchSession(id);
+  render();  // reflect the new active session's highlight in the inbox
+}
 function closeSessMenu(){ const m=document.getElementById("sessmenu"); if(m) m.remove(); }
 function toggleSessMenu(ev){
   ev.stopPropagation();
@@ -527,22 +535,25 @@ const VIEWS = {
   // Gateway: ONE unified conversation across every channel (dashboard, telegram,
   // voice, cli) — the same loop + memory answer all of them. Each message is
   // tagged with where it came in, Hermes-style. You type in the dock on the right.
+  // Gateway = an INBOX of conversations (like Slack/Intercom): one row per
+  // conversation, tagged with its channel(s). Click one to open it in the chat
+  // dock (the active thread). No longer a flat stream that duplicates the dock.
   gateway(d){
-    const log = d.chat_log || [];
-    const counts = {};
-    log.forEach(m => { const s = m.source||"cli"; counts[s] = (counts[s]||0)+1; });
-    const legend = Object.entries(counts).map(([s,n]) =>
-      `<span class="gwtag ${esc(s)}">${esc(s)}</span>${n}`).join(" &nbsp; ");
-    let h = `<div class="meta" style="margin-bottom:14px">One conversation across every gateway — the same
-      harness answers all of them. Each message shows where it came in. Type in the chat dock on the right;
-      messages from your phone (Telegram) or voice land here too.${log.length?` &nbsp;·&nbsp; ${legend}`:""}</div>`;
-    if (!log.length) return h + `<div class="card empty">no messages yet — say something in the chat dock &rarr;</div>`;
-    h += `<div class="convo">` + log.map(m => `
-      <div class="msg ${m.role}">
-        <div class="who">${m.role==="user"?"you":"waku"}<span class="gwtag ${esc(m.source||"cli")}">${esc(m.source||"cli")}</span>${m.consolidated?` <span class="chip-c">consolidated</span>`:""}</div>
-        <div class="mtext">${esc(m.content)}</div>
-        <div class="meta" style="margin-top:4px">${esc((m.created_at||"").slice(0,19))}</div>
-      </div>`).join("") + `</div>`;
+    const sessions = d.sessions || [];
+    let h = `<div class="meta" style="margin-bottom:14px">Every conversation across every channel —
+      web, phone (Telegram), voice, terminal — answered by the same brain. Click one to open it in the
+      chat dock &rarr;. This is the inbox; the dock is the open thread.</div>`;
+    if (!sessions.length)
+      return h + `<div class="card empty">no conversations yet — say something in the chat dock &rarr;</div>`;
+    h += sessions.map(s => {
+      const tags = (s.sources||[]).map(src => `<span class="gwtag ${esc(src)}">${esc(src)}</span>`).join("");
+      const on = s.id === SESSION;
+      return `<div class="toolcard" style="cursor:pointer${on?';border-color:var(--accent)':''}" onclick="openConversation('${esc(s.id)}')">
+        <div class="tn" style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+          <span>${esc(s.title||s.id)} ${tags}</span>
+          <span class="meta" style="font-weight:400;white-space:nowrap">${s.messages} msg · ${esc((s.last_at||"").slice(0,16).replace("T"," "))}</span></div>
+        <div class="td">${esc(s.last||"")}</div></div>`;
+    }).join("");
     return h;
   },
   overview(d){

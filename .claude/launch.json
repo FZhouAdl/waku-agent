@@ -4,7 +4,7 @@
     {
       "name": "jarvis-dashboard",
       "runtimeExecutable": ".venv/bin/python",
-      "runtimeArgs": ["-m", "jarvis.ops.dashboard"],
+      "runtimeArgs": ["-m", "waku.ops.dashboard"],
       "port": 7777,
       "autoPort": true
     },

@@ -363,12 +363,23 @@ def session_list(conn) -> list[dict]:
     ).fetchall()
     out = []
     for g in groups:
+        sid = g["session_id"]
         first = conn.execute(
             "SELECT content FROM chat_log WHERE session_id=? AND role='user' ORDER BY id LIMIT 1",
-            (g["session_id"],),
+            (sid,),
         ).fetchone()
-        out.append({"id": g["session_id"],
+        last = conn.execute(
+            "SELECT role, content FROM chat_log WHERE session_id=? ORDER BY id DESC LIMIT 1", (sid,)
+        ).fetchone()
+        sources = [r["source"] for r in conn.execute(
+            "SELECT DISTINCT source FROM chat_log WHERE session_id=?", (sid,)).fetchall()]
+        preview = ""
+        if last:
+            preview = ("you: " if last["role"] == "user" else "waku: ") + last["content"][:80]
+        out.append({"id": sid,
                     "title": (first["content"][:60] if first else "(empty)"),
+                    "last": preview,
+                    "sources": sources,
                     "messages": g["messages"],
                     "last_at": g["last_at"]})
     return out

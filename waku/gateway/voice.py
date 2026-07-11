@@ -227,6 +227,7 @@ def main() -> None:
         raise SystemExit("Voice extra not installed: pip install -e '.[voice]'")
 
     waku = Waku()
+    waku.session.session_id = "voice"   # its own conversation thread in the inbox
     mouth = Mouth()
 
     # WAKU_WAKE_WORD="waku waku" → always-listening; unset → push-to-talk.
