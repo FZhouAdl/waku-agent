@@ -283,23 +283,29 @@ the script to taste.
 ## Talk to it
 
 ```bash
-pip install -e '.[voice]'
-make voice        # push-to-talk: Enter, speak, Enter
+uv pip install -e '.[voice]'
+waku voice        # hands-free: always-listening for "waku waku"
 ```
 
-Same loop, same memory, same evals — speech is just another gateway. TTS uses
-the macOS `say` British voice by default (zero setup); for the neural voice:
-`pip install kokoro soundfile`, then `WAKU_TTS=kokoro make voice`.
-
-**Custom wake word** — make it always-listening with ANY phrase, no training:
+**Hands-free by default.** `waku voice` listens for the wake word **"waku waku"** — a tiny
+Whisper model scans the mic; when it hears the phrase, the big model takes over for your
+command and speaks the reply. Change or disable it:
 
 ```bash
-WAKU_WAKE_WORD="waku waku" make voice
+WAKU_WAKE_WORD="hey waku"  waku voice     # any phrase, no training
+WAKU_WAKE_WORD=""          waku voice     # push-to-talk instead (Enter, speak, Enter)
 ```
 
-A tiny Whisper model scans the mic; when it hears your phrase, the big model
-takes over for the command. Fully transparent (the matcher is ~15 lines with
-deterministic evals). A trained openWakeWord model is the efficient upgrade for v2.
+The matcher is ~15 transparent lines with a deterministic eval; it accepts cross-script
+variants (`"waku waku,わくわく"`). A trained openWakeWord model is the efficient v2 upgrade.
+
+**Nicer voice.** By default it uses macOS `say` (zero setup). Install the neural
+[Kokoro](https://github.com/hexgrad/kokoro) voice and it's picked up automatically — no env
+var needed:
+
+```bash
+uv pip install kokoro soundfile           # → the proper British-butler voice (bm_george)
+```
 
 ## Phone to laptop
 

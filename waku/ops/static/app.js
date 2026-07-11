@@ -383,7 +383,7 @@ function dbQueryView(){
   return `<div class="meta" style="margin-bottom:10px">A read-only SQL console over <code>state.db</code>
       (the Supabase-editor idea, scoped down). Only <code>SELECT</code> runs — the file is opened read-only,
       so nothing here can change your data.</div>
-    <textarea class="sqlbox" id="sqlbox" spellcheck="false">${esc(QUERY_EXAMPLES[0])}</textarea>
+    <textarea class="sqlbox" id="sqlbox" spellcheck="false" onfocus="markEditing()" oninput="markEditing()">${esc(QUERY_EXAMPLES[0])}</textarea>
     <div style="margin:8px 0"><button class="save" onclick="runQuery()">Run</button>
       <span class="meta" style="margin-left:12px">try: ${QUERY_EXAMPLES.map(q=>`<span class="qexample" onclick="qFill(this.textContent)">${esc(q)}</span>`).join(" &nbsp; ")}</span></div>
     <div id="qout"></div>`;
@@ -455,6 +455,7 @@ document.addEventListener("click", e => {
 // --- read-only SQL console (item: "a simple query editor like Supabase")
 function qFill(sql){ const b=document.getElementById("sqlbox"); if(b){ b.value=sql; runQuery(); } }
 async function runQuery(){
+  editing = true;   // keep the 5s refresh from wiping the query + results
   const sql = (document.getElementById("sqlbox")||{}).value || "";
   const out = document.getElementById("qout");
   out.innerHTML = `<div class="meta">running…</div>`;
@@ -901,7 +902,7 @@ function render(){
   if (view === "overview"){
     // don't rebuild mid-animation or the glowing SVG gets wiped
     if (activeView !== "overview" || !animating){ document.getElementById("view").innerHTML = VIEWS.overview(D); }
-  } else if ((view === "memory" || view === "settings") && editing && !subChanged){
+  } else if ((view === "memory" || view === "settings" || view === "database") && editing && !subChanged){
     // don't wipe an in-progress edit on the 5s refresh — but DO switch sub-tabs
   } else {
     editing = false;

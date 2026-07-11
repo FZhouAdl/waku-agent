@@ -66,8 +66,18 @@ class Mouth:
     (Kokoro-82M, Apache-2.0 — its bm_* voices are the proper British butler)."""
 
     def __init__(self):
-        self.engine = os.getenv("WAKU_TTS", "say")
+        self.engine = os.getenv("WAKU_TTS", "").strip().lower()
         self.voice = os.getenv("WAKU_VOICE", "")
+        if not self.engine:
+            # Auto: use the nicer neural voice (Kokoro) if it's installed, else
+            # fall back to macOS `say`. So `pip install kokoro soundfile` alone
+            # upgrades the voice — no env var needed.
+            try:
+                import kokoro  # noqa: F401
+
+                self.engine = "kokoro"
+            except ImportError:
+                self.engine = "say"
         if self.engine == "kokoro":
             from kokoro import KPipeline
 
@@ -230,8 +240,9 @@ def main() -> None:
     waku.session.session_id = "voice"   # its own conversation thread in the inbox
     mouth = Mouth()
 
-    # WAKU_WAKE_WORD="waku waku" → always-listening; unset → push-to-talk.
-    wake_word = os.getenv("WAKU_WAKE_WORD", "").strip()
+    # Hands-free by default: always-listening for "waku waku". Set
+    # WAKU_WAKE_WORD="" to fall back to push-to-talk (Enter to talk).
+    wake_word = os.getenv("WAKU_WAKE_WORD", "waku waku").strip()
     if wake_word:
         try:
             wake_loop(waku, mouth, wake_word)
