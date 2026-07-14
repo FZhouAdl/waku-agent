@@ -36,7 +36,7 @@ Built for [Sean's AI Stories](https://www.youtube.com/@SeanAIStories).
 
 - ☕️ **Buy me a coffee:** [Cafe Latte](https://buy.stripe.com/5kA176bA895ggog4gh)
 - 🚀 **Launch Full-Stack App Template:** [launch-mvp-stripe-nextjs-supabase](https://github.com/ShenSeanChen/launch-mvp-stripe-nextjs-supabase) — NextJS + Supabase + Stripe, everything you need to ship a SaaS
-- 🧠 **My AI startup:** [AutoManus.io](https://automanus.io) — an AI sales lead manager for made-to-order product sales. We embed where conversations happen (WhatsApp, email, web chat) to capture inbound, automate follow-ups, and kill CRM busywork. Pre-seed backed by Character VC.
+- 💻 **My AI startup:** [AutoManus.io](https://automanus.io) — an AI sales lead manager for made-to-order product sales. We embed where conversations happen (WhatsApp, email, web chat) to capture inbound, automate follow-ups, and kill CRM busywork. Pre-seed backed by Character VC.
 
 ## Quickstart
 
