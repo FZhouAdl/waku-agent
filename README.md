@@ -123,6 +123,22 @@ what the products do under the hood.
 Versus the big open-source assistants (OpenClaw, Hermes)? Same architecture, 1/100th the code.
 Products vs. a readable blueprint.
 
+## The whiteboard gallery — editable system-design charts
+
+Every whiteboard from the videos lives in [`docs/whiteboards/`](docs/whiteboards) as an
+**editable `.excalidraw` source** — download one, drop it on [excalidraw.com](https://excalidraw.com),
+and remix it for your own team:
+
+| Chart | What it explains |
+|---|---|
+| [`k3-architecture.excalidraw`](docs/whiteboards/k3-architecture.excalidraw) | Kimi K3: the 16-of-896 MoE, KDA + AttnRes attention, why agent loops get cheap |
+| [`pi-architecture.excalidraw`](docs/whiteboards/pi-architecture.excalidraw) | pi (72K-star coding agent): 4-tool core, extensions, one EventStream |
+| [`architecture-whiteboard.png`](docs/architecture-whiteboard.png) | Waku itself — the chart this whole repo implements |
+
+New charts land here with every video. If they help you,
+[a star](https://github.com/ShenSeanChen/waku-agent) keeps them coming — and
+[sponsoring](https://github.com/sponsors/ShenSeanChen) gets new whiteboards early.
+
 ## The whiteboard maps to the code
 
 This diagram renders straight from the README (it's [Mermaid](https://mermaid.js.org/) text, not an
