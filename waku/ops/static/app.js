@@ -101,7 +101,9 @@ async function saveSettings(){
   document.getElementById("set-msg").textContent = "switching…";
   const r = await postJSON("/api/settings", {provider, model, small_model, keys});
   document.getElementById("set-msg").textContent = r.error ? ("Error: "+r.error) : "Switched to "+r.provider+" — live now.";
-  if(!r.error){ modelCatalog = null; refresh(); }
+  // release the editing lock or the render guard keeps showing the OLD state
+  // (live bug: "Current:" card stayed on kimi after switching provider)
+  if(!r.error){ editing = false; modelCatalog = null; await refresh(); }
 }
 function markEditing(){ editing = true; }
 
