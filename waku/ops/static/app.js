@@ -454,7 +454,7 @@ function archSVG(d){
     ${flowLbl(348,28,"reply, out the same gateway","middle")}
     <!-- every turn is saved for consolidation: down a clear right lane,
          then left into the consolidation box -->
-    <path class="flow dash" data-edge="e-reply-save" d="M650 136 C660 150 660 200 660 600 L614 600" marker-end="url(#arr)"/>
+    <path class="flow dash" data-edge="e-reply-save" d="M650 136 C660 150 660 200 660 600 L430 600" marker-end="url(#arr)"/>
     ${flowLbl(668,214,"save chats",'start')}
 
     <!-- retrieval gate feeding working memory (the hero) -->
@@ -475,7 +475,7 @@ function archSVG(d){
     ${box(480,452,132,72,"Episodic",d.episodes.length+" episodes","memory/episodic","","episodic")}
 
     <!-- consolidation writes back into memory -->
-    ${box(44,576,568,52,"Consolidation · every "+d.consolidate_every+" exchanges",d.chat_pending+"/"+d.consolidate_every*2+" queued → distilled into facts","memory/consolidation","","consolidation")}
+    ${box(44,576,384,52,"Consolidation · every "+d.consolidate_every+" exchanges",d.chat_pending+"/"+d.consolidate_every*2+" queued → distilled into facts","memory/consolidation","","consolidation")}
     ${flow("M340 576 L340 528","","e-consol-sem")}${flowLbl(350,560,"distill")}
 
     <!-- LLM OPS: the offline improvement loop — inside the harness (it all
