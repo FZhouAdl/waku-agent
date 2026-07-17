@@ -424,79 +424,80 @@ function archSVG(d){
   const flow = (d2,cls="",eid="") => `<path class="flow ${cls}" ${eid?`data-edge="${eid}"`:""} d="${d2}"/>`;
   const flowLbl = (x,y,t,anchor="start") => `<text class="fl" x="${x}" y="${y}" text-anchor="${anchor}">${t}</text>`;
 
-  return `<div style="overflow-x:auto"><svg viewBox="0 0 1044 664" class="arch" role="img">
+  return `<div style="overflow-x:auto"><svg viewBox="0 0 824 700" class="arch" role="img">
     <defs><marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0 0 L10 5 L0 10 z" class="head"/></marker></defs>
 
     <!-- HARNESS container: everything runs on your laptop, including the
          offline LLM Ops loop (tinted sub-panel) -->
-    <rect class="container" x="12" y="20" width="1020" height="628" rx="16"/>
-    ${lbl(32,48,"HARNESS — runs on your laptop · the turn inside is ephemeral")}
+    <rect class="container" x="12" y="20" width="800" height="664" rx="16"/>
+    ${lbl(30,46,"HARNESS — runs on your laptop · the turn inside is ephemeral")}
 
-    <!-- the turn: gateway → working memory → loop → reply -->
-    ${box(32,72,128,56,"Gateway","cli · voice · web","chat","","gateway")}
-    ${flow("M160 100 L192 100","","e-gw-wm")}
-    ${box(192,72,144,56,"Working memory","assembled per turn","memory/overview","","wm")}
+    <!-- THE TURN, stacked vertically then rightward: gateway (top) sits above
+         working memory, so the whole turn is narrower and the reply arc has
+         room to breathe: gateway → working memory → loop → reply -->
+    ${box(30,64,132,52,"Gateway","cli · voice · web","chat","","gateway")}
+    ${flow("M96 116 L96 143","","e-gw-wm")}
+    ${box(28,144,150,56,"Working memory","assembled per turn","memory/overview","","wm")}
+    ${flow("M178 172 L222 172","","e-wm-loop")}
 
-    <rect class="loopbox" x="370" y="56" width="168" height="166" rx="12"/>
-    ${lbl(384,48,"LOOP")}
-    ${box(384,72,140,50,"LLM agent","reason","loop","","llm")}
-    ${box(384,152,140,52,"Tools","create_event…","tools","","tools")}
-    ${flow("M448 122 L448 152")}${flow("M470 152 L470 122")}
-    ${flowLbl(456,141,"act")}
-    ${flow("M336 100 L370 100","","e-wm-loop")}
-    ${flow("M538 100 L558 106")}${flowLbl(542,93,"reply")}
-    ${box(558,84,104,52,"Reply","→ back to you","loop","","reply")}
+    <rect class="loopbox" x="224" y="126" width="164" height="150" rx="12"/>
+    ${lbl(238,118,"LOOP")}
+    ${box(238,144,138,48,"LLM agent","reason","loop","","llm")}
+    ${box(238,212,138,48,"Tools","create_event…","tools","","tools")}
+    ${flow("M300 192 L300 212")}${flow("M322 212 L322 192")}${flowLbl(308,206,"act")}
+    ${flow("M376 168 L426 168")}${flowLbl(384,160,"reply")}
+    ${box(428,142,104,52,"Reply","→ back to you","loop","","reply")}
     <!-- The gateway is the door IN and OUT: the reply leaves through the very
          gateway it arrived at (Telegram sends it, the CLI prints it, voice
-         speaks it, the dashboard streams it). A clean over-the-top arc. -->
-    <path class="flow" data-edge="e-reply-gw" d="M604 82 C548 40 172 40 100 70" marker-end="url(#arr)"/>
-    ${flowLbl(352,32,"reply, out the same gateway","middle")}
-    <!-- every turn is saved for consolidation: down a clear right lane,
-         then left into the consolidation box -->
-    <path class="flow dash" data-edge="e-reply-save" d="M650 136 C660 150 660 200 660 600 L614 600" marker-end="url(#arr)"/>
-    ${flowLbl(668,214,"save chats",'start')}
+         speaks it, the dashboard streams it). Now a gentle arc with real room. -->
+    <path class="flow" data-edge="e-reply-gw" d="M466 142 C418 58 194 48 96 60" marker-end="url(#arr)"/>
+    ${flowLbl(284,40,"reply, out the same gateway","middle")}
 
     <!-- retrieval gate feeding working memory (the hero) -->
-    <path class="gate node" data-node="gate" onclick="location.hash='memory/overview'" d="M264 250 L340 296 L264 342 L188 296 Z"/>
-    <text class="nt" x="264" y="292" text-anchor="middle" style="pointer-events:none">Retrieval gate</text>
-    <text class="ns" x="264" y="310" text-anchor="middle" style="pointer-events:none">${s.gate_skips} skip · ${s.gate_retrieves} retrieve</text>
-    ${flow("M264 250 L264 128","dash","e-gate-wm")}${flowLbl(274,196,"only if needed")}
+    <path class="gate node" data-node="gate" onclick="location.hash='memory/overview'" d="M206 330 L262 362 L206 394 L150 362 Z"/>
+    <text class="nt" x="206" y="358" text-anchor="middle" style="pointer-events:none">Retrieval gate</text>
+    <text class="ns" x="206" y="376" text-anchor="middle" style="pointer-events:none">${s.gate_skips} skip · ${s.gate_retrieves} retrieve</text>
+    ${flow("M178 342 L118 204","dash","e-gate-wm")}${flowLbl(92,286,"only if needed")}
 
     <!-- MEMORY: grouped section with a direct link from the gate to each pillar -->
-    ${lbl(40,404,"MEMORY — three pillars")}
-    <rect class="memgroup" x="28" y="414" width="600" height="128" rx="12"/>
-    ${flow("M148 452 L246 336","dash","e-gate-proc")}
-    ${flow("M340 452 L272 344","dash","e-gate-sem")}
-    ${flow("M542 452 L286 338","dash","e-gate-epi")}
-    ${flowLbl(356,392,"the gate reads all three",'middle')}
-    ${box(44,452,208,72,"Procedural","how to act · SKILL.md · "+d.skills.length+" skill(s)","memory/skills","","procedural")}
-    ${box(264,452,204,72,"Semantic · FTS5","durable facts · "+d.facts.length+" facts","memory/semantic","","semantic")}
-    ${box(480,452,132,72,"Episodic",d.episodes.length+" episodes","memory/episodic","","episodic")}
+    ${lbl(34,434,"MEMORY — three pillars")}
+    ${flowLbl(360,416,"the gate reads all three",'middle')}
+    <rect class="memgroup" x="26" y="446" width="556" height="118" rx="12"/>
+    ${flow("M140 478 L196 396","dash","e-gate-proc")}
+    ${flow("M330 478 L214 396","dash","e-gate-sem")}
+    ${flow("M500 478 L256 372","dash","e-gate-epi")}
+    ${box(42,478,196,72,"Procedural","how to act · SKILL.md · "+d.skills.length+" skill(s)","memory/skills","","procedural")}
+    ${box(252,478,186,72,"Semantic · FTS5","durable facts · "+d.facts.length+" facts","memory/semantic","","semantic")}
+    ${box(454,478,116,72,"Episodic",d.episodes.length+" episodes","memory/episodic","","episodic")}
 
     <!-- consolidation writes back into memory -->
-    ${box(44,576,568,52,"Consolidation · every "+d.consolidate_every+" exchanges",d.chat_pending+"/"+d.consolidate_every*2+" queued → distilled into facts","memory/consolidation","","consolidation")}
-    ${flow("M340 576 L340 528","","e-consol-sem")}${flowLbl(350,560,"distill")}
+    ${box(42,588,528,48,"Consolidation · every "+d.consolidate_every+" exchanges",d.chat_pending+"/"+d.consolidate_every*2+" queued → distilled into facts","memory/consolidation","","consolidation")}
+    ${flow("M330 588 L330 550","","e-consol-sem")}${flowLbl(340,574,"distill")}
+    <!-- every turn is saved for consolidation: down a lane between memory and
+         the ops panel, then left into the consolidation box -->
+    <path class="flow dash" data-edge="e-reply-save" d="M532 168 C588 176 588 400 588 612 L572 612" marker-end="url(#arr)"/>
+    ${flowLbl(594,320,"save chats",'start')}
 
-    <!-- LLM OPS: the offline improvement loop — inside the harness (it all
-         runs on the laptop) but a distinct tinted sub-panel -->
-    <rect class="container ops" x="736" y="40" width="280" height="372" rx="14"/>
-    ${lbl(752,64,"LLM OPS — offline improvement loop")}
-    ${flowLbl(752,80,"observes each run · improves the agent",'start')}
+    <!-- LLM OPS: the offline improvement loop — inside the harness (it all runs
+         on the laptop) but a distinct tinted sub-panel, now narrow enough to
+         stay on screen when the chat dock squeezes the column -->
+    <rect class="container ops" x="600" y="56" width="210" height="330" rx="14"/>
+    ${lbl(614,80,"LLM OPS — offline loop")}
+    ${flowLbl(614,96,"watches runs · improves the agent",'start')}
     <!-- every turn crosses the gap to feed the trace -->
-    <path class="flow" data-edge="e-reply-trace" d="M660 104 C700 100 726 100 752 106" marker-end="url(#arr)"/>
-    ${flowLbl(688,96,"each turn")}
-    ${box(752,92,250,50,"Trace",s.trace_files+" file(s) · always on","ops","","trace")}
-    ${flow("M878 142 L878 156")}
-    ${box(752,156,250,50,"Eval","deterministic + judge","ops")}
-    ${flow("M878 206 L878 220")}
-    ${box(752,220,250,50,"Release gate",d.eval_report?"det "+d.eval_report.deterministic+" · judge "+d.eval_report.judge:"run make gate","ops")}
-    ${flow("M878 270 L878 284")}
-    ${box(752,284,250,50,"Release","new prompt · model · config","ops")}
-    <!-- feedback: Release improves the Harness — a short arrow across the gap,
-         so the outer loop closes without a long wrap crowding the margins -->
-    <path class="flow dash" d="M752 312 C712 324 698 352 676 358" marker-end="url(#arr)"/>
-    ${flowLbl(596,346,"improved prompt + config",'end')}
+    <path class="flow" data-edge="e-reply-trace" d="M532 156 C566 138 584 124 606 116" marker-end="url(#arr)"/>
+    ${flowLbl(544,134,"each turn")}
+    ${box(612,104,186,44,"Trace",s.trace_files+" file(s) · always on","ops","","trace")}
+    ${flow("M705 148 L705 162")}
+    ${box(612,162,186,44,"Eval","deterministic + judge","ops")}
+    ${flow("M705 206 L705 220")}
+    ${box(612,220,186,44,"Release gate",d.eval_report?"det "+d.eval_report.deterministic+" · judge "+d.eval_report.judge:"run make gate","ops")}
+    ${flow("M705 264 L705 278")}
+    ${box(612,278,186,44,"Release","new prompt · model · config","ops")}
+    <!-- feedback: Release improves the Harness — closes the outer loop -->
+    <path class="flow dash" d="M612 308 C540 332 470 330 406 320" marker-end="url(#arr)"/>
+    ${flowLbl(500,346,"improved prompt + config",'middle')}
   </svg></div>`;
 }
 
