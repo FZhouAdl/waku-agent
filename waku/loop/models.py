@@ -56,11 +56,13 @@ PROVIDERS: dict[str, Provider] = {
                           "claude-sonnet-5", "claude-haiku-4-5-20251001",
                           catalog_url="https://api.anthropic.com/v1/models",
                           flagship="claude-opus-4-8", fast="claude-sonnet-5"),
-    # gpt-5.6 ships as luna/sol/terra variants (no bare "gpt-5.6"); sol is the
-    # flagship, luna the small/fast one. base_url is None (SDK default endpoint),
-    # so point the picker at OpenAI's catalog explicitly, like anthropic/kimi.
+    # The gpt-5.6 REASONING models (luna/sol/terra) can't use function tools on
+    # /v1/chat/completions (they need /v1/responses), so every Waku turn 400s on
+    # them. gpt-5-chat-latest is the newest NON-reasoning chat model and calls
+    # tools fine here; gpt-4.1-mini is a cheap tool-capable gate. base_url is None
+    # (SDK default endpoint) so point the picker at OpenAI's catalog explicitly.
     "openai":    Provider("openai", "OPENAI_API_KEY", None,
-                          "gpt-5.6-sol", "gpt-5.6-luna",
+                          "gpt-5-chat-latest", "gpt-4.1-mini",
                           catalog_url="https://api.openai.com/v1/models"),
     # one key, every lab's models, and a $0 tier: the default models below are
     # free ids (":free" suffix). Rate-limited (~50 req/day without credits).

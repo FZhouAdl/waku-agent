@@ -24,12 +24,13 @@ def test_xai_grok_provider_uses_expected_key_endpoint_and_models(monkeypatch, tm
     assert settings.model == "grok-4"
 
 
-def test_openai_default_is_a_real_catalog_id(tmp_path):
-    """Regression: the default was bare 'gpt-5.6', which isn't a callable id
-    (the catalog ships gpt-5.6-luna/-sol/-terra). Flagship is the -sol variant."""
+def test_openai_default_is_tool_capable(tmp_path):
+    """Regression: bare 'gpt-5.6' isn't callable, and the gpt-5.6 REASONING
+    variants (luna/sol/terra) can't use function tools on /v1/chat/completions
+    (they 400). The default must be a NON-reasoning, tool-capable chat model."""
     from waku.loop.models import PROVIDERS
-    assert PROVIDERS["openai"].model == "gpt-5.6-sol"
-    assert PROVIDERS["openai"].default_pair() == ["gpt-5.6-sol", "gpt-5.6-luna"]
+    assert PROVIDERS["openai"].model == "gpt-5-chat-latest"
+    assert PROVIDERS["openai"].default_pair() == ["gpt-5-chat-latest", "gpt-4.1-mini"]
 
 
 def test_deepseek_provider_uses_expected_key_endpoint_and_models(monkeypatch, tmp_path):
