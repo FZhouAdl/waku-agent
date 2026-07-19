@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 import time
 
 from waku.config import Settings, load_settings
@@ -26,6 +27,12 @@ from waku.loop.models import get_client
 
 JUDGE_PROVIDER = os.getenv("WAKU_JUDGE_PROVIDER", "openai")
 JUDGE_MODEL = os.getenv("WAKU_JUDGE_MODEL", "gpt-5.6-sol")
+
+# A race grades every column at once — 8 judge calls hitting one endpoint
+# simultaneously gets some 429'd, and those columns show "—". Cap how many judge
+# calls run concurrently (shared across the race's threads) so the referee isn't
+# stampeded; the rest queue and still get graded.
+_JUDGE_SEM = threading.Semaphore(int(os.getenv("WAKU_JUDGE_CONCURRENCY", "2")))
 
 _RUBRIC = """You are a strict, fair judge scoring an AI assistant's reply.
 
@@ -65,23 +72,30 @@ def judge_reply(task: str, reply: str, provider: str | None = None,
                f"{', '.join(tools)}.\n" if tools else
                "\nThe assistant ran no tools this turn.\n")
     prompt = _RUBRIC.format(task=task[:2000], reply=reply[:4000], actions=actions)
-    # Races judge every column at once, so the judge endpoint sees a burst of
-    # concurrent calls and may 429. One retry turns most of those transient
-    # failures into a score; a persistent failure still degrades to None.
-    for attempt in range(2):
+    settings = Settings(provider=provider, model=model, small_model="",
+                        home=load_settings().home, apple_calendar=False)
+    # A race judges every column at once, so the endpoint sees a burst and may
+    # 429. Retry ONLY the API call (with growing backoff); the semaphore caps how
+    # many run concurrently. A response that arrives but won't parse isn't
+    # transient — don't waste retries on it.
+    resp = None
+    for attempt in range(4):
         try:
-            settings = Settings(provider=provider, model=model, small_model="",
-                                home=load_settings().home, apple_calendar=False)
             client = get_client(settings)   # fills the provider default id
-            resp = client.messages.create(
-                model=settings.model, max_tokens=300,
-                messages=[{"role": "user", "content": prompt}])
-            text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-            obj = json.loads(text[text.index("{"): text.rindex("}") + 1])
-            score = max(0, min(10, int(obj["score"])))
-            return {"score": score, "reason": str(obj.get("reason", ""))[:200],
-                    "judge": settings.model}
+            with _JUDGE_SEM:
+                resp = client.messages.create(
+                    model=settings.model, max_tokens=300,
+                    messages=[{"role": "user", "content": prompt}])
+            break
         except Exception:
-            if attempt == 0:
-                time.sleep(1.5)   # brief backoff, then one more try
-    return None
+            if attempt < 3:
+                time.sleep(1.2 * (attempt + 1))   # 1.2s, 2.4s, 3.6s — let a 429 clear
+    if resp is None:
+        return None
+    try:
+        text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
+        obj = json.loads(text[text.index("{"): text.rindex("}") + 1])
+        score = max(0, min(10, int(obj["score"])))
+        return {"score": score, "reason": str(obj.get("reason", ""))[:200], "judge": settings.model}
+    except Exception:
+        return None   # got a response, just not valid JSON — retrying won't help
