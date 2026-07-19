@@ -181,6 +181,7 @@ async function runCompare(){
 function compareErrorReason(err){
   const e = (err || "").toLowerCase();
   if (e.includes("reasoning_effort") || e.includes("/v1/responses")) return "can't call tools — reasoning model, needs the /v1/responses API";
+  if (e.includes("not a chat model") || e.includes("v1/completions")) return "not a chat model — needs the completions/responses API, not chat";
   if (e.includes("thought_signature")) return "can't call tools — missing thought_signature echo";
   if (e.includes("credit") || e.includes("permission-denied") || e.includes("license")) return "no credits/licenses on this provider";
   if (e.includes("max_tokens")) return "token-parameter mismatch";
