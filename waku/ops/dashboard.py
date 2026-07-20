@@ -443,6 +443,7 @@ PRICING = {
     "anthropic": (3.0, 15.0), "openai": (2.5, 15.0), "gemini": (0.3, 2.5),
     "deepseek": (0.435, 0.87), "minimax": (0.30, 1.20), "kimi": (0.6, 2.5), "glm": (0.6, 2.2),
     "xai": (3.0, 15.0),   # Grok — rough est; keyed users get exact from the catalog
+    "snowflake": (3.0, 15.0),  # Snowflake Cortex — rough est (credits, not list price)
     # openrouter fallback for paid models when the live catalog is unreachable
     # (rough mid-catalog guess). ":free" ids and catalog-priced models never
     # hit this: see price_for().

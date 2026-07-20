@@ -1,24 +1,31 @@
-"""Model access — eight providers, one loop, zero framework.
+"""Model access — nine providers, one loop, zero framework.
 
 The loop speaks one dialect: Anthropic's Messages shape (system/messages/tools
 in, content blocks out). Providers plug in two ways:
 
   anthropic wire format (native)     → Anthropic, Kimi/Moonshot, GLM/Z.ai, MiniMax
   openai wire format (thin adapter)  → OpenAI, Google Gemini, DeepSeek, OpenRouter
+  custom (subprocess wrapper)        → Snowflake Cortex (wraps the `cortex` CLI)
 
-Pick with WAKU_PROVIDER=anthropic|openai|gemini|deepseek|minimax|kimi|glm|openrouter
+Pick with WAKU_PROVIDER=anthropic|openai|gemini|deepseek|minimax|kimi|glm|openrouter|snowflake
 and set that provider's API key in .env. Override the model ids with WAKU_MODEL /
 WAKU_SMALL_MODEL if the defaults below age out — they're just strings. This
 matters most for openrouter: it's a single key in front of hundreds of models,
 so WAKU_MODEL=<vendor>/<model> (e.g. "google/gemini-3.5-flash") picks whichever
 one you want — and its defaults below are $0 ":free" ids, so it works with no
 spend at all (rate-limited). The dashboard Settings tab lists the live catalog.
+
+Snowflake Cortex is a CLI-wrapper provider: it shells out to `cortex exec
+--format json` instead of making HTTP calls. Auth is handled by the CLI's own
+browser OAuth + OS keyring — Waku never sees the token. See coco.md.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 from dataclasses import dataclass
 from types import SimpleNamespace
 
@@ -95,6 +102,14 @@ PROVIDERS: dict[str, Provider] = {
     "xai":       Provider("openai", "XAI_API_KEY", "https://api.x.ai/v1",
                           "grok-4", "grok-4-fast",
                           catalog_url="https://api.x.ai/v1/models"),
+    # Wraps the installed `cortex` code CLI (subprocess + NDJSON parse). kind
+    # = "custom" because there's no HTTP endpoint Waku talks directly — the
+    # CLI carries its own Snowflake auth (browser OAuth, OS keyring) and
+    # emits Claude-Messages-shaped JSON events. No base_url; no new deps.
+    "snowflake": Provider("custom", "SNOWFLAKE_USER",
+                          base_url=None,
+                          model="cortex", small_model="cortex",
+                          ),
 }
 
 
@@ -136,7 +151,215 @@ def get_client(settings: Settings):
         if base_url:
             kwargs["base_url"] = base_url
         return anthropic.Anthropic(**kwargs)
+    if provider.kind == "custom":
+        return _build_coco_client(settings, provider)
     return OpenAICompatClient(api_key=api_key, base_url=base_url, timeout=timeout)
+
+
+def _build_coco_client(settings: Settings, provider: Provider):
+    """Resolve the `cortex` binary and return a CocoCliClient that shells out to
+    `cortex exec --format json` for every turn. Auth is handled by the CLI."""
+    bin_path = shutil.which(settings.base_url or os.getenv("CORTEX_BIN", "") or "cortex")
+    if not bin_path:
+        raise SystemExit(
+            f"No Cortex CLI found and {provider.key_env} is not set. "
+            f"Install the `cortex` CLI (https://docs.snowflake.com/cortex) or set "
+            f"{provider.key_env} in .env (see .env.example)."
+        )
+    max_turns = int(os.getenv("WAKU_MAX_ITERATIONS", "10"))
+    model = settings.model or provider.model
+    allowed_raw = os.getenv("CORTEX_ALLOWED", "")
+    allowed = [t.strip() for t in allowed_raw.split(",") if t.strip()] or None
+    return CocoCliClient(bin_path=bin_path, model=model, max_turns=max_turns, allowed=allowed)
+
+
+_DENIED_MARKERS = (
+    "Tool denied:",
+    "headless mode requires",
+    "PERMANENTLY blocked",
+)
+
+
+class CocoCliClient:
+    """Wraps the installed `cortex` code CLI. Every turn shells out to
+    `cortex exec --format json`, which emits an NDJSON stream of typed records
+    (`system/init`, `assistant`, `user`, `result`). The adapter parses these
+    into Anthropic-shaped Message / stream events that the loop consumes."""
+
+    def __init__(self, *, bin_path: str, model: str, max_turns: int,
+                 allowed: list[str] | None, notify=None):
+        self._bin = bin_path
+        self._model = model
+        self._max_turns = max_turns
+        self._allowed = allowed
+        self._notify = notify or (lambda k, e: None)
+        self.messages = SimpleNamespace(create=self._create, stream=self._stream)
+
+    # ── public API (mirrors anthropic.Anthropic.messages) ──────────────
+
+    def _create(self, *, model, messages, max_tokens, system=None, tools=None):
+        """Non-streaming fallback: drain _stream() to completion, return final Message."""
+        last = None
+        for ev in self._stream(
+            model=model, messages=messages, max_tokens=max_tokens,
+            system=system, tools=tools,
+        ):
+            last = ev
+        if last is None:
+            raise RuntimeError("cortex exec produced no output")
+        return last.message
+
+    def _stream(self, *, model, messages, max_tokens, system=None, tools=None):
+        """Yields Anthropic-shaped MessageStreamEvent objects, one per NDJSON
+        record. Calls notify(kind, payload) for intermediate events so gateways
+        can surface thinking, tool calls, denials, and unknown blocks live."""
+        argv = [self._bin, "exec", "--format", "json", "--bypass",
+                "--max-turns", str(self._max_turns)]
+        if self._allowed:
+            argv += ["--allowed", ",".join(self._allowed)]
+        prompt = _render_prompt(system, messages, tools)
+        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+        proc.stdin.write(prompt)
+        proc.stdin.close()
+
+        accumulated: list[dict] = []
+        tool_name_by_id: dict[str, str] = {}
+        for line in proc.stdout:
+            evt = json.loads(line)
+            kind = evt.get("type")
+            if kind == "system":
+                self._notify("session", {"session_id": evt.get("session_id", "")})
+            elif kind == "assistant":
+                for block in evt["message"]["content"]:
+                    if block.get("type") == "tool_use":
+                        tool_name_by_id[block["id"]] = block.get("name", "")
+                    _emit_block(block, tool_name_by_id, self._notify)
+                    accumulated.append(block)
+            elif kind == "user":
+                for block in evt["message"]["content"]:
+                    _emit_block(block, tool_name_by_id, self._notify)
+            elif kind == "result":
+                if evt.get("is_error"):
+                    self._notify("error", {"errors": evt.get("errors", []),
+                                            "usage": evt.get("usage", {})})
+                    yield from self._stream(
+                        model=model, messages=messages, max_tokens=max_tokens,
+                        system=system, tools=tools,
+                    )
+                    return
+                denials = evt.get("permission_denials") or []
+                if denials:
+                    self._notify("denials", {"denials": denials})
+                yield _final_message_event(accumulated, evt.get("usage", {}))
+                return
+        proc.wait()
+        if proc.returncode != 0:
+            stderr = proc.stderr.read()
+            raise RuntimeError(f"cortex exec failed (exit {proc.returncode}): {stderr.strip()}")
+        raise RuntimeError("cortex exec produced no result event")
+
+    # ── helpers ────────────────────────────────────────────────────────
+
+    def _build_argv(self, model, max_tokens, tools):
+        """Exposed for tests — builds the argument list without spawning."""
+        argv = [self._bin, "exec", "--format", "json", "--bypass",
+                "--max-turns", str(self._max_turns)]
+        if self._allowed:
+            argv += ["--allowed", ",".join(self._allowed)]
+        return argv
+
+
+def _render_prompt(system, messages, tools=None) -> str:
+    """Build a plain-text prompt from the loop's system + messages list for
+    `cortex exec`. The CLI reads from stdin, so this is just a text blob."""
+    parts = []
+    if system:
+        parts.append(f"[SYSTEM]\n{system}")
+    if tools:
+        schemas = "\n".join(
+            f"  {t.get('name')}: {t.get('description', '')} "
+            f"({json.dumps(t.get('input_schema', {}))})"
+            for t in tools
+        )
+        parts.append(f"[TOOLS]\n{schemas}")
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            parts.append(f"[{role.upper()}]\n{content}")
+        elif isinstance(content, list):
+            texts = [b.get("text", "") or "" for b in content
+                     if isinstance(b, dict) and b.get("type") == "text"]
+            parts.append(f"[{role.upper()}]\n" + "\n".join(texts))
+    return "\n\n".join(parts)
+
+
+def _emit_block(block: dict, tool_name_by_id: dict[str, str], notify):
+    """Forward one Cortex content block as a notify() call so the gateway
+    can render it. Handles text, thinking, tool_use, tool_result (including
+    denials), ask_user_question, and forwards unknown types as raw events."""
+    t = block.get("type")
+    if t == "thinking":
+        notify("thinking", {"delta": block.get("thinking", "")})
+    elif t == "text":
+        notify("text", {"delta": block.get("text", "")})
+    elif t == "tool_use":
+        notify("tool", {"id": block.get("id", ""),
+                         "name": block.get("name", ""),
+                         "input": block.get("input", {})})
+    elif t == "tool_result":
+        output = block.get("content", "")
+        name = tool_name_by_id.get(block.get("tool_use_id", ""), "<unknown>")
+        denied = isinstance(output, str) and any(m in output for m in _DENIED_MARKERS)
+        notify("tool_result", {"id": block.get("tool_use_id", ""),
+                                 "name": name,
+                                 "output": output,
+                                 "denied": denied})
+        if denied:
+            notify("denial", {"id": block.get("tool_use_id", ""),
+                               "name": name,
+                               "reason": output})
+    elif t == "ask_user_question":
+        notify("question", {"questions": block.get("questions", []),
+                             "raw": block})
+    elif t:
+        notify("cortex_block", {"type": t, "raw": block})
+
+
+def _final_message_event(accumulated: list[dict], usage: dict):
+    """Build the final Anthropic Message from accumulated assistant blocks.
+    Cortex `exec` with `--bypass` handles its own tool execution internally
+    (the NDJSON stream carries tool_use → tool_result pairs). Waku should
+    never try to dispatch cortex's internal tools through its own
+    ToolRegistry. So we return only text blocks and always set
+    stop_reason="end_turn" to let the loop finish the turn cleanly."""
+    texts = [b.get("text", "") for b in accumulated
+             if b.get("type") == "text"]
+    blocks = [SimpleNamespace(type="text", text=t) for t in texts if t]
+    return _make_stream_event(blocks, usage)
+
+
+def _make_stream_event(blocks: list, usage: dict):
+    """Shared helper: wrap blocks + usage into an Anthropic-shaped
+    MessageStreamEvent the loop can consume."""
+    usage_obj = SimpleNamespace(
+        input_tokens=usage.get("input_tokens", 0),
+        output_tokens=usage.get("output_tokens", 0),
+    )
+    message = SimpleNamespace(
+        stop_reason="end_turn",
+        content=blocks,
+        usage=usage_obj,
+    )
+
+    class _Event:
+        def __init__(self, msg):
+            self.message = msg
+        def get_final_message(self):
+            return self.message
+
+    return _Event(message)
 
 
 class OpenAICompatClient:

@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","session_id":"test-session-004","uuid":"init-004","claude_code_version":"1.0.0","cwd":"/test","model":"auto","tools":[],"apiKeySource":"snowflake"}
+{"type":"result","session_id":"test-session-004","subtype":"error_max_turns","uuid":"result-err-001","is_error":true,"errors":["Max tool call iterations reached"],"duration_ms":7000,"num_turns":2,"usage":{"input_tokens":50000,"output_tokens":42},"modelUsage":{},"permission_denials":[]}

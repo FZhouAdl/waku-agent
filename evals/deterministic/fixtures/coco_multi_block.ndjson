@@ -1,0 +1,7 @@
+{"type":"system","subtype":"init","session_id":"test-session-multi","uuid":"init-multi","claude_code_version":"1.0.0","cwd":"/test","model":"auto","tools":["read","write","edit","bash"],"apiKeySource":"snowflake"}
+{"type":"assistant","session_id":"test-session-multi","message":{"id":"msg-m001","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"Let me think about what the user needs."}]},"uuid":"a-001"}
+{"type":"assistant","session_id":"test-session-multi","message":{"id":"msg-m002","type":"message","role":"assistant","content":[{"type":"text","text":"Here's my plan:"}]},"uuid":"a-002"}
+{"type":"assistant","session_id":"test-session-multi","message":{"id":"msg-m003","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_m001","name":"read","input":{"path":"/test/file.txt"}}]},"uuid":"a-003"}
+{"type":"user","session_id":"test-session-multi","message":{"id":"msg-m003b","type":"message","role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_m001","content":"hello world"}]},"isSynthetic":true,"uuid":"u-003b"}
+{"type":"assistant","session_id":"test-session-multi","message":{"id":"msg-m004","type":"message","role":"assistant","content":[{"type":"text","text":"The file says 'hello world'."}]},"uuid":"a-004"}
+{"type":"result","session_id":"test-session-multi","subtype":"success","uuid":"result-multi","result":"The file says 'hello world'.","is_error":false,"num_turns":1,"usage":{"input_tokens":2000,"output_tokens":100},"permission_denials":[]}

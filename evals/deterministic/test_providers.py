@@ -9,11 +9,13 @@ other five still worked. Now something does.
 
 from __future__ import annotations
 
+import shutil
+
 import anthropic
 import pytest
 
 from waku.config import Settings
-from waku.loop.models import PROVIDERS, OpenAICompatClient, get_client
+from waku.loop.models import PROVIDERS, CocoCliClient, OpenAICompatClient, get_client
 
 
 @pytest.fixture(autouse=True)
@@ -26,11 +28,18 @@ def fake_keys(monkeypatch):
 
 
 @pytest.mark.parametrize("name", list(PROVIDERS))
-def test_get_client_builds_the_right_wire(name):
+def test_get_client_builds_the_right_wire(name, monkeypatch):
     provider = PROVIDERS[name]
     settings = Settings(provider=name, model="", small_model="", api_key="", base_url=None)
+    if provider.kind == "custom":
+        monkeypatch.setattr(shutil, "which", lambda *a: "/usr/local/bin/cortex")
     client = get_client(settings)
-    expected = anthropic.Anthropic if provider.kind == "anthropic" else OpenAICompatClient
+    if provider.kind == "anthropic":
+        expected = anthropic.Anthropic
+    elif provider.kind == "custom":
+        expected = CocoCliClient
+    else:
+        expected = OpenAICompatClient
     assert isinstance(client, expected)
     # defaults must be filled in so the loop never sends model=""
     assert settings.model == provider.model

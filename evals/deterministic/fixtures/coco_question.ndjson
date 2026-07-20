@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"test-session-005","uuid":"init-005","claude_code_version":"1.0.0","cwd":"/test","model":"auto","tools":[],"apiKeySource":"snowflake"}
+{"type":"assistant","session_id":"test-session-005","message":{"id":"msg-007","type":"message","role":"assistant","content":[{"type":"ask_user_question","questions":["What time would you like the meeting?","Who should attend?"]}],"model":"auto"},"parent_tool_use_id":null,"uuid":"assist-007"}
+{"type":"result","session_id":"test-session-005","subtype":"success","uuid":"result-005","result":"","is_error":false,"duration_ms":1000,"num_turns":1,"usage":{"input_tokens":500,"output_tokens":30},"modelUsage":{},"permission_denials":[]}
